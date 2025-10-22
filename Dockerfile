@@ -32,11 +32,10 @@ COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/.env ./.env
 
 # Exponemos el puerto NestJS
-EXPOSE 3001
+EXPOSE 8080
 
 # Variables de entorno por defecto (Cloud Run puede sobreescribirlas)
 ENV NODE_ENV=production
-ENV PORT=3001
 
 # Comando de inicio
 CMD ["node", "dist/main.js"]
