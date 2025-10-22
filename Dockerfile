@@ -29,7 +29,6 @@ COPY package*.json ./
 RUN npm install --only=production
 
 COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/.env ./.env
 
 # Exponemos el puerto NestJS
 EXPOSE 8080
