@@ -26,7 +26,7 @@ WORKDIR /app
 
 # Copiamos solo lo necesario desde el builder
 COPY package*.json ./
-RUN npm ci --only=production
+RUN npm install --only=production
 
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/.env ./.env
