@@ -1,23 +1,42 @@
-# 1. Usa Node.js como base
-FROM node:20-alpine
+# ---------------------------
+# STAGE 1: Build
+# ---------------------------
+FROM node:20-alpine AS builder
 
-# 2. Establece el directorio de trabajo dentro del contenedor
 WORKDIR /app
 
-# 3. Copia los archivos necesarios
+# Copiamos los archivos necesarios
 COPY package*.json ./
 
-# 4. Instala solo las dependencias necesarias
-RUN npm ci --only=production
+# Instalamos TODAS las dependencias (incluye dev)
+RUN npm install
 
-# 5. Copia el resto del código
+# Copiamos el resto del proyecto
 COPY . .
 
-# 6. Compila el proyecto (si usas TypeScript)
+# Compilamos NestJS
 RUN npm run build
 
-# 7. Expone el puerto que usa NestJS
+# ---------------------------
+# STAGE 2: Run
+# ---------------------------
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Copiamos solo lo necesario desde el builder
+COPY package*.json ./
+RUN npm ci --only=production
+
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/.env ./.env
+
+# Exponemos el puerto NestJS
 EXPOSE 3001
 
-# 8. Comando de inicio
+# Variables de entorno por defecto (Cloud Run puede sobreescribirlas)
+ENV NODE_ENV=production
+ENV PORT=3001
+
+# Comando de inicio
 CMD ["node", "dist/main.js"]
