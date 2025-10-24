@@ -6,25 +6,24 @@ export class User {
   @PrimaryGeneratedColumn()
   id: number;
 
-  @Column({ length: 100 })
+  @Column()
   full_name: string;
 
-  @Column({ length: 8, nullable: true })
-  id_cedula: string;
-
-  @Column({ length: 100 })
-  address_home: string;
-
-  @Column({ length: 100, unique: true })
+  @Column({ unique: true })
   email: string;
 
-  @Column({ length: 255 })
+  @Column()
   password_hash: string;
 
-  @Column({ length: 9, nullable: true })
+  @Column({ nullable: true })
   cellphone: string;
 
-  // 👇 ESTA ES LA CLAVE
+  @Column({ nullable: true })
+  address_home: string;
+
+  @Column()
+  id_cedula: string;
+
   @Column()
   rol_id: number;
 
