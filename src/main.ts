@@ -18,7 +18,8 @@ async function bootstrap() {
   app.enableCors({
     origin: [
       'http://localhost:3000', // entorno local de Next.js
-      'https://verco-system-xdke.vercel.app', // tu frontend desplegado
+      'https://verco-system-xdke.vercel.app',
+      'https://verco-system-xdke-9j17ywjsu-yhorshuas-projects.vercel.app',
     ],
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
     credentials: true,
