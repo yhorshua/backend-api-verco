@@ -9,9 +9,7 @@ RUN npm run build
 # Etapa final
 FROM node:20-alpine
 WORKDIR /app
-COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/node_modules ./node_modules
-COPY package*.json ./
+COPY --from=builder /app ./
 
 ENV NODE_ENV=production
 EXPOSE 8080
