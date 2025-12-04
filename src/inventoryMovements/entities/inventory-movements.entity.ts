@@ -2,7 +2,7 @@
 import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn } from 'typeorm';
 import { Product } from '../../products/entities/product.entity';
 import { ProductSize } from '../../products/entities/product-size.entity';
-import { Warehouse } from '../../products/entities/warehouses.entity';
+import { Warehouse } from '../../warehouses/entities/warehouse.entity';
 import { User } from '../../users/user.entity';
 
 @Entity('InventoryMovements')
