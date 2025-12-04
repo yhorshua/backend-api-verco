@@ -1,5 +1,7 @@
+
 import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn } from 'typeorm';
 import { User } from '../../users/user.entity';
+import { DocumentType } from '../../documentTypes/document-types.entity';
 
 @Entity('Clients')
 export class Client {
@@ -8,6 +10,10 @@ export class Client {
 
   @Column()
   document_type: string;
+
+  @ManyToOne(() => DocumentType)
+  @JoinColumn({ name: 'document_type', referencedColumnName: 'code' })
+  docType: DocumentType;
 
   @Column()
   document_number: string;
@@ -39,7 +45,7 @@ export class Client {
   @Column({ nullable: true })
   email: string;
 
-  @Column()
+  @Column({ nullable: true })
   seller_id: number;
 
   @ManyToOne(() => User)

@@ -1,5 +1,6 @@
 import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn } from 'typeorm';
 import { Role } from './role.entity';
+import { Warehouse } from '../warehouses/entities/warehouse.entity';
 
 @Entity('Users')
 export class User {
@@ -21,7 +22,7 @@ export class User {
   @Column({ nullable: true })
   address_home: string;
 
-  @Column()
+  @Column({ nullable: true })
   id_cedula: string;
 
   @Column()
@@ -34,6 +35,13 @@ export class User {
   @Column({ type: 'datetime', default: () => 'GETDATE()' })
   date_register: Date;
 
-  @Column({ type: 'bit', default: 1 })
+  @Column({ type: 'bit', default: true })
   state_user: boolean;
+
+  @Column({ nullable: true })
+  warehouse_id: number;
+
+  @ManyToOne(() => Warehouse)
+  @JoinColumn({ name: 'warehouse_id' })
+  warehouse: Warehouse;
 }
