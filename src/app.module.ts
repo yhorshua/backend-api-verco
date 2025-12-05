@@ -23,11 +23,12 @@ import { AuthModule } from './auth/auth.module';
       database: process.env.DB_NAME,
       autoLoadEntities: true,
       synchronize: false,
-      options: {
-        encrypt: false,
-      },
-    }),
-    
+      options: { encrypt: false },
+      retryAttempts: 10,
+      retryDelay: 3000,
+    })
+    ,
+
     ProductsModule,
     DatabaseModule,
     UsersModule, // 👈 AGREGA AQUÍ
