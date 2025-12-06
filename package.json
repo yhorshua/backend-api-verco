@@ -32,6 +32,8 @@
     "bcryptjs": "^3.0.2",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.2",
+    "glob": "^13.0.0",
+    "inflight": "^1.0.6",
     "mssql": "^11.0.1",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
