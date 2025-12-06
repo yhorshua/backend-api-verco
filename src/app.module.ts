@@ -16,7 +16,7 @@ import { AuthModule } from './auth/auth.module';
 
     TypeOrmModule.forRoot({
       type: 'mssql',
-      host: process.env.DB_HOST,
+      host: process.env.DB_HOST || 'localhost',
       port: parseInt(process.env.DB_PORT || '1433', 10),
       username: process.env.DB_USER,
       password: process.env.DB_PASS,
@@ -25,7 +25,8 @@ import { AuthModule } from './auth/auth.module';
       synchronize: false,
       options: { encrypt: false },
       retryAttempts: 10,
-      retryDelay: 3000,
+      retryDelay: 5000,  // Retraso entre intentos (5 segundos)
+      connectionTimeout: 30000, // Timeout de conexión (30 segundos)
     })
     ,
 
