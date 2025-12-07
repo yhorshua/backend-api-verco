@@ -22,12 +22,13 @@ import { AuthModule } from './auth/auth.module';
       password: process.env.DB_PASS,
       database: process.env.DB_NAME,
       autoLoadEntities: true,
-      synchronize: false,
+      synchronize: true, // Establecer a true solo en desarrollo
       options: { encrypt: false },
       retryAttempts: 10,
       retryDelay: 5000,  // Retraso entre intentos (5 segundos)
       connectionTimeout: 30000, // Timeout de conexión (30 segundos)
     })
+
     ,
 
     ProductsModule,
