@@ -28,7 +28,7 @@ glob.sync(entitiesPath).forEach((file) => {
 
     TypeOrmModule.forRoot({
       type: 'mssql',
-      host: process.env.DB_HOST || 'localhost',
+     host: `/cloudsql/${process.env.CLOUD_SQL_CONNECTION_NAME}`,
       port: parseInt(process.env.DB_PORT || '1433', 10),
       username: process.env.DB_USER,
       password: process.env.DB_PASS,
