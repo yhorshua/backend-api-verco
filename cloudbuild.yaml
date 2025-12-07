@@ -5,6 +5,8 @@ steps:
     - '-c'
     - |
       npm install
-      npm run build  # o 'npm run start:prod' si prefieres compilar y ejecutar
+      npm run build  # Este paso compilará tu proyecto NestJS
+
+# Este paso asegura que el código fuente sea desplegado sin Docker
 images:
 - 'gcr.io/$PROJECT_ID/backend-api-verco'
