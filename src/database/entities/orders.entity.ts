@@ -5,9 +5,9 @@ import {
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
-import { Client } from '../../clients/entity/client.entity';
-import { User } from '../../users/user.entity';
-import { Warehouse } from '../../warehouses/entities/warehouse.entity';
+import { Client } from './client.entity';
+import { User } from './user.entity';
+import { Warehouse } from './warehouse.entity';
 import { OrderStatus } from './order-status.entity';
 
 @Entity('Orders')

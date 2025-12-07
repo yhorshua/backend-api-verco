@@ -1,8 +1,14 @@
-import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn } from 'typeorm';
-import { Warehouse } from '../../warehouses/entities/warehouse.entity';
-import { Product } from './product.entity';
-import { ProductSize } from './product-size.entity';
-import { User } from '../../users/user.entity';
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  ManyToOne,
+  JoinColumn,
+} from 'typeorm';
+import { Warehouse } from './warehouse.entity';
+import { Product } from '../entities/product.entity';
+import { ProductSize } from '../entities/product-size.entity';
+import { User } from './user.entity';
 
 @Entity('StockMovements')
 export class StockMovement {
@@ -12,29 +18,29 @@ export class StockMovement {
   @Column()
   warehouse_id: number;
 
-  @ManyToOne(() => Warehouse)
+  @ManyToOne(() => Warehouse, { onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'warehouse_id' })
   warehouse: Warehouse;
 
   @Column()
   product_id: number;
 
-  @ManyToOne(() => Product)
+  @ManyToOne(() => Product, { onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'product_id' })
   product: Product;
 
   @Column({ nullable: true })
   product_size_id: number;
 
-  @ManyToOne(() => ProductSize)
+  @ManyToOne(() => ProductSize, { onDelete: 'SET NULL' })
   @JoinColumn({ name: 'product_size_id' })
   productSize: ProductSize | null;
 
   @Column('decimal', { precision: 10, scale: 2 })
   quantity: number; // positivo: entrada, negativo: salida
 
-  @Column()
-  unit_of_measure: string;
+  @Column({ length: 20 })
+  unit_of_measure: string; // Ej: 'PAR', 'UND', 'KG'
 
   @Column({ length: 20 })
   movement_type: string; // 'entrada', 'salida', 'transferencia'
@@ -48,7 +54,7 @@ export class StockMovement {
   @Column({ nullable: true })
   user_id: number;
 
-  @ManyToOne(() => User)
+  @ManyToOne(() => User, { onDelete: 'SET NULL' })
   @JoinColumn({ name: 'user_id' })
-  user: User;
+  user: User | null;
 }

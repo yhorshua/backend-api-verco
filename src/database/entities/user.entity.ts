@@ -1,6 +1,6 @@
 import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn } from 'typeorm';
 import { Role } from './role.entity';
-import { Warehouse } from '../warehouses/entities/warehouse.entity';
+import { Warehouse } from './warehouse.entity';
 
 @Entity('Users')
 export class User {

@@ -1,8 +1,8 @@
 // order-details.entity.ts
 import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn } from 'typeorm';
 import { Order } from './orders.entity';
-import { Product } from '../../products/entities/product.entity';
-import { ProductSize } from '../../products/entities/product-size.entity';
+import { Product } from './product.entity';
+import { ProductSize } from './product-size.entity';
 
 @Entity('Order_Details')
 export class OrderDetail {

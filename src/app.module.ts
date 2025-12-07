@@ -7,7 +7,19 @@ import { ConfigModule } from '@nestjs/config';
 import { DatabaseModule } from './database/database.module'; // 👈 AÑADE ESTO
 import { UsersModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
+import * as path from 'path';
+import * as fs from 'fs';
+import { glob } from 'glob';
 
+// Leer todas las entidades dinámicamente de la carpeta `src/database/entities`
+const entitiesPath = path.join(__dirname, 'database', 'entities', '**', '*.entity.ts');
+
+let entities: Function[] = [];
+
+glob.sync(entitiesPath).forEach((file) => {
+  const entity = require(file).default;  // Cargar la entidad
+  entities.push(entity);
+});
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -21,14 +33,15 @@ import { AuthModule } from './auth/auth.module';
       username: process.env.DB_USER,
       password: process.env.DB_PASS,
       database: process.env.DB_NAME,
-      autoLoadEntities: true,
-      synchronize: true, // Establecer a true solo en desarrollo
-      options: { encrypt: false },
+      entities: entities,  // Asegúrate de que todas las entidades estén aquí
+      synchronize: false,  // No uses synchronize: true en producción
+      options: {
+        encrypt: false,  // Desactivar la encriptación SSL
+      },
       retryAttempts: 10,
-      retryDelay: 5000,  // Retraso entre intentos (5 segundos)
-      connectionTimeout: 30000, // Timeout de conexión (30 segundos)
+      retryDelay: 5000,
+      connectionTimeout: 30000,
     })
-
     ,
 
     ProductsModule,

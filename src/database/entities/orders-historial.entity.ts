@@ -1,7 +1,7 @@
 // orders-historial.entity.ts
 import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn } from 'typeorm';
 import { Order } from './orders.entity';
-import { User } from '../../users/user.entity';
+import { User } from './user.entity';
 
 @Entity('OrdersHistorial')
 export class OrdersHistorial {

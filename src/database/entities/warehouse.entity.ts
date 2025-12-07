@@ -1,5 +1,5 @@
 import { Entity, PrimaryGeneratedColumn, Column, OneToMany } from 'typeorm';
-import { Stock } from '../../products/entities/stock.entity';
+import { Stock } from './stock.entity';  // Importa la entidad Stock
 
 @Entity('Warehouses')
 export class Warehouse {
@@ -20,5 +20,5 @@ export class Warehouse {
 
   // Relación inversa con Stock
   @OneToMany(() => Stock, stock => stock.warehouse)
-  stock: Stock[];
+  stock: Stock[];  // Asegúrate de que esta propiedad esté configurada correctamente
 }

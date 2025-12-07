@@ -1,10 +1,10 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
-import { Stock } from './entities/stock.entity';
-import { StockMovement } from './entities/stockMovements.entity';
-import { Sale } from './entities/sale.entity';
-import { SaleDetail } from './entities/sale-detail.entity';
+import { Stock } from '../database/entities/stock.entity';
+import { StockMovement } from '../database/entities/stock-movements';
+import { Sale } from '../database/entities/sale.entity';
+import { SaleDetail } from '../database/entities/sale-detail.entity';
 import { CreateMovementDto } from './dto/create-movement.dto';
 import { CreateSaleDto } from './dto/create-sale.dto';
 

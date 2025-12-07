@@ -1,5 +1,5 @@
 import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn, Unique } from 'typeorm';
-import { Warehouse } from '../../warehouses/entities/warehouse.entity';
+import { Warehouse } from './warehouse.entity';
 import { Product } from './product.entity';
 import { ProductSize } from './product-size.entity';
 
@@ -13,7 +13,7 @@ export class Stock {
   warehouse_id: number;
 
   @ManyToOne(() => Warehouse, warehouse => warehouse.stock, { onDelete: 'RESTRICT' })
-  @JoinColumn({ name: 'warehouse_id' })
+  @JoinColumn({ name: 'warehouse_id' })  // Aquí te aseguras de que la relación se configure correctamente
   warehouse: Warehouse;
 
   @Column()

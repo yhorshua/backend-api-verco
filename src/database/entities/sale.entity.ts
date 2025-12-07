@@ -1,6 +1,6 @@
 import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn, OneToMany } from 'typeorm';
-import { Warehouse } from '../../warehouses/entities/warehouse.entity';
-import { User } from '../../users/user.entity';
+import { Warehouse } from './warehouse.entity';
+import { User } from './user.entity';
 import { SaleDetail } from './sale-detail.entity';
 
 @Entity('Sales')

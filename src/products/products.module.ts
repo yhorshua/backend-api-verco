@@ -2,8 +2,8 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ProductsService } from './products.service';
 import { ProductsController } from './products.controller';
-import { Product } from './entities/product.entity';
-import { Stock } from './entities/stock.entity';
+import { Product } from '../database/entities/product.entity';
+import { Stock } from '../database/entities/stock.entity';
 
 @Module({
   imports: [TypeOrmModule.forFeature([Product, Stock])], // 👈 registra repositorios

@@ -1,7 +1,7 @@
 
 import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn } from 'typeorm';
-import { User } from '../../users/user.entity';
-import { DocumentType } from '../../documentTypes/document-types.entity';
+import { User } from './user.entity';
+import { DocumentType } from './document-types.entity';
 
 @Entity('Clients')
 export class Client {
