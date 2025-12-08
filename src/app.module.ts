@@ -39,10 +39,10 @@ import { Stock } from './database/entities/stock.entity';
       username: process.env.DB_USER || 'server-verco',
       password: process.env.DB_PASS || 'Ventas@123',
       database: process.env.DB_NAME || 'bd_verco',
-      synchronize: true,
+      synchronize: false,
       options: {
         encrypt: true,
-        trustServerCertificate: false,
+        trustServerCertificate: true,
       },
       retryAttempts: 10,
       retryDelay: 5000,
