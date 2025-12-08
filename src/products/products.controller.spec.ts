@@ -3,14 +3,22 @@ import { ProductsController } from './products.controller';
 import { ProductsService } from './products.service';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Product } from '../database/entities/product.entity';
+import { Stock } from '../database/entities/stock.entity';
 
-// Mock para ProductRepository
+// Mocks para ProductRepository y StockRepository
 const mockProductRepository = {
   create: jest.fn().mockResolvedValue(new Product()),
   save: jest.fn().mockResolvedValue(new Product()),
   findOne: jest.fn().mockResolvedValue(new Product()),
   find: jest.fn().mockResolvedValue([new Product()]),
   update: jest.fn().mockResolvedValue(new Product()),
+};
+
+const mockStockRepository = {
+  create: jest.fn().mockResolvedValue(new Stock()),
+  save: jest.fn().mockResolvedValue(new Stock()),
+  findOne: jest.fn().mockResolvedValue(new Stock()),
+  find: jest.fn().mockResolvedValue([new Stock()]),
 };
 
 describe('ProductsController', () => {
@@ -24,6 +32,10 @@ describe('ProductsController', () => {
         {
           provide: getRepositoryToken(Product),
           useValue: mockProductRepository,  // Mock ProductRepository
+        },
+        {
+          provide: getRepositoryToken(Stock),
+          useValue: mockStockRepository,    // Mock StockRepository
         },
       ],
     }).compile();
