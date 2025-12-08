@@ -30,11 +30,10 @@ glob.sync(entitiesPath).forEach((file) => {
     TypeOrmModule.forRoot({
       type: 'mssql',
       host: process.env.DB_HOST || 'server-system-verco.database.windows.net',
-      port: 1433,
       username: process.env.DB_USER || 'server-verco',
       password: process.env.DB_PASS || 'Ventas@123',
-      database: process.env.DB_NAME || 'bd-verco',
-      synchronize: false,
+      database: process.env.DB_NAME || 'bd_verco',
+      synchronize: true,
       options: {
         encrypt: true,
         trustServerCertificate: false,
