@@ -20,6 +20,7 @@ glob.sync(entitiesPath).forEach((file) => {
   const entity = require(file).default;  // Cargar la entidad
   entities.push(entity);
 });
+
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -28,21 +29,20 @@ glob.sync(entitiesPath).forEach((file) => {
 
     TypeOrmModule.forRoot({
       type: 'mssql',
-      host: process.env.DB_HOST || 'localhost',
-      port: parseInt(process.env.DB_PORT || '1433', 10),
-      username: process.env.DB_USER,
-      password: process.env.DB_PASS,
-      database: process.env.DB_NAME,
-      entities: entities,  // Asegúrate de que todas las entidades estén aquí
-      synchronize: false,  // No uses synchronize: true en producción
+      host: process.env.DB_HOST || 'server-system-verco.database.windows.net',
+      port: 1433,
+      username: process.env.DB_USER || 'server-verco',
+      password: process.env.DB_PASS || 'Ventas@123',
+      database: process.env.DB_NAME || 'bd-verco',
+      synchronize: false,
       options: {
-        encrypt: false,  // Desactivar la encriptación SSL
+        encrypt: true,
+        trustServerCertificate: false,
       },
       retryAttempts: 10,
       retryDelay: 5000,
       connectionTimeout: 30000,
-    })
-    ,
+    }),  // Elimina la coma extra aquí
 
     ProductsModule,
     DatabaseModule,
