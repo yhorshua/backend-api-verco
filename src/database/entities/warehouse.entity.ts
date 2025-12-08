@@ -6,7 +6,7 @@ export class Warehouse {
   @PrimaryGeneratedColumn()
   id: number;
 
-  @Column()
+  @Column({ nullable: true })
   warehouse_name: string;
 
   @Column({ nullable: true })

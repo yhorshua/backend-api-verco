@@ -7,19 +7,25 @@ import { ConfigModule } from '@nestjs/config';
 import { DatabaseModule } from './database/database.module'; // 👈 AÑADE ESTO
 import { UsersModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
-import * as path from 'path';
-import * as fs from 'fs';
-import { glob } from 'glob';
+import { User } from './database/entities/user.entity';
+import { Product } from './database/entities/product.entity';
+import { Warehouse } from './database/entities/warehouse.entity';
+import { Order } from './database/entities/orders.entity';
+import { OrderDetail } from './database/entities/order-details.entity';
+import { ProductSize } from './database/entities/product-size.entity';
+import { Client } from './database/entities/client.entity';
+import { DocumentType } from './database/entities/document-types.entity';
+import { InventoryMovement } from './database/entities/inventory-movements.entity';
+import { OrderStatus } from './database/entities/order-status.entity';
+import { Role } from './database/entities/role.entity';
+import { Sale } from './database/entities/sale.entity';
+import { SaleDetail } from './database/entities/sale-detail.entity';
+import { Series } from './database/entities/series.entity';
+import { StockMovement } from './database/entities/stock-movements';
+import { Stock } from './database/entities/stock.entity';
 
-// Leer todas las entidades dinámicamente de la carpeta `src/database/entities`
-const entitiesPath = path.join(__dirname, 'database', 'entities', '**', '*.entity.ts');
 
-let entities: Function[] = [];
 
-glob.sync(entitiesPath).forEach((file) => {
-  const entity = require(file).default;  // Cargar la entidad
-  entities.push(entity);
-});
 
 @Module({
   imports: [
@@ -33,7 +39,7 @@ glob.sync(entitiesPath).forEach((file) => {
       username: process.env.DB_USER || 'server-verco',
       password: process.env.DB_PASS || 'Ventas@123',
       database: process.env.DB_NAME || 'bd_verco',
-      synchronize: true,
+      synchronize: false,
       options: {
         encrypt: true,
         trustServerCertificate: false,
@@ -41,7 +47,28 @@ glob.sync(entitiesPath).forEach((file) => {
       retryAttempts: 10,
       retryDelay: 5000,
       connectionTimeout: 30000,
-    }),  // Elimina la coma extra aquí
+      entities: [
+        User,
+        Product,
+        Warehouse,
+        Order,
+        OrderDetail,
+        ProductSize,
+        Product,
+        Client,
+        DocumentType,
+        InventoryMovement,
+        OrderStatus,
+        OrderDetail,
+        Role,
+        Sale,
+        SaleDetail,
+        Series,
+        StockMovement,
+        Stock,
+        OrderStatus  
+      ],
+    }),
 
     ProductsModule,
     DatabaseModule,
