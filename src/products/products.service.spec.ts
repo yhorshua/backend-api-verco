@@ -14,7 +14,9 @@ const mockProductRepository = {
   save: jest.fn().mockResolvedValue(new Product()),
   findOne: jest.fn().mockResolvedValue(new Product()),
   find: jest.fn().mockResolvedValue([new Product()]),
+  update: jest.fn().mockResolvedValue(new Product()),
 };
+
 
 const mockStockRepository = {
   create: jest.fn().mockResolvedValue(new Stock()),

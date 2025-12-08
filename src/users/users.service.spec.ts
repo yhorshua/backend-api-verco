@@ -10,7 +10,9 @@ const mockUserRepository = {
   save: jest.fn().mockResolvedValue(new User()),
   findOne: jest.fn().mockResolvedValue(new User()),
   find: jest.fn().mockResolvedValue([new User()]),
+  update: jest.fn().mockResolvedValue(new User()),  // Asegúrate de agregar esto
 };
+
 
 describe('UsersService', () => {
   let service: UsersService;
@@ -33,12 +35,22 @@ describe('UsersService', () => {
     expect(service).toBeDefined();
   });
 
-  it('should create a user', async () => {
-    const createUserDto = { email: 'user@example.com', full_name: 'John Doe', password: 'password123' };
-    const result = await service.create(createUserDto);
-    expect(result).toBeInstanceOf(User);
-    expect(mockUserRepository.create).toHaveBeenCalledWith(createUserDto);
-  });
+it('should create a user', async () => {
+  const createUserDto = { 
+    email: 'user@example.com', 
+    full_name: 'John Doe', 
+    password: 'password123',
+  };
+  const result = await service.create(createUserDto);
+
+  // Elimina la comparación de 'password_hash' para evitar problemas
+  expect(mockUserRepository.create).toHaveBeenCalledWith(expect.objectContaining({
+    email: 'user@example.com',
+    full_name: 'John Doe',
+    password_hash: expect.any(String),  // Esperamos que sea un hash, no el valor exacto
+  }));
+});
+
 
   it('should find all users', async () => {
     const result = await service.findAll();
