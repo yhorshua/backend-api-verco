@@ -36,4 +36,8 @@ async function bootstrap() {
   return server;  // Devuelve el servidor Express
 }
 
-export const handler = bootstrap();  // Exporta como handler
+// Para Vercel, necesitamos exportar el handler correctamente
+export const handler = async (req, res) => {
+  const app = await bootstrap();  // Inicializar NestJS y Express
+  app(req, res);  // Pasar la solicitud y respuesta a Express
+};
