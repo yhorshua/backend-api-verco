@@ -1,9 +1,12 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
+import { ExpressAdapter } from '@nestjs/platform-express';  // Importar ExpressAdapter
+import * as express from 'express';  // Necesario para Express
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const server = express();  // Crear una instancia de Express
+  const app = await NestFactory.create(AppModule, new ExpressAdapter(server));  // Adaptar NestJS a Express
 
   // ✅ Validación global (usa class-validator en tus DTOs)
   app.useGlobalPipes(
@@ -28,8 +31,9 @@ async function bootstrap() {
   // 🚀 Puerto dinámico (requerido para Google Cloud Run)
   const port = process.env.PORT || 8080;
   await app.listen(port, '0.0.0.0');
-
+  
   console.log(`🚀 App running on port ${port}`);
+  return server;  // Devuelve el servidor Express
 }
 
-bootstrap();
+export const handler = bootstrap();  // Exporta como handler
