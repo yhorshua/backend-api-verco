@@ -2,14 +2,14 @@
   "version": 2,
   "builds": [
     {
-      "src": "api/main.ts",  // Apunta a tu archivo main.ts dentro de la carpeta api
+      "src": "api/main.ts", 
       "use": "@vercel/node"
     }
   ],
   "routes": [
     {
       "src": "/(.*)",
-      "dest": "api/main.ts"  // Asegúrate de que las solicitudes vayan a api/main.ts
+      "dest": "api/main.ts" 
     }
   ]
 }
