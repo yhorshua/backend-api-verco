@@ -6,8 +6,8 @@ import {
   JoinColumn,
 } from 'typeorm';
 import { Warehouse } from './warehouse.entity';
-import { Product } from '../entities/product.entity';
-import { ProductSize } from '../entities/product-size.entity';
+import { Product } from './product.entity';
+import { ProductSize } from './product-size.entity';
 import { User } from './user.entity';
 
 @Entity('StockMovements')

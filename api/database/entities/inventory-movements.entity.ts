@@ -1,7 +1,7 @@
 // inventory-movements.entity.ts
 import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn } from 'typeorm';
-import { Product } from '../entities/product.entity';
-import { ProductSize } from '../entities/product-size.entity';
+import { Product } from './product.entity';
+import { ProductSize } from './product-size.entity';
 import { Warehouse } from './warehouse.entity';
 import { User } from './user.entity';
 

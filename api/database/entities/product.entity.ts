@@ -1,7 +1,7 @@
 import { Entity, PrimaryGeneratedColumn, Column, OneToMany, ManyToOne, JoinColumn } from 'typeorm';
 import { ProductSize } from './product-size.entity';
 import { Series } from './series.entity';
-import { Stock } from '../entities/stock.entity';
+import { Stock } from './stock.entity';
 
 @Entity('Products')
 export class Product {
