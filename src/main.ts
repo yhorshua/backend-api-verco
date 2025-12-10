@@ -1,12 +1,12 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
-import { ExpressAdapter } from '@nestjs/platform-express';  // Importar ExpressAdapter
-import * as express from 'express';  // Necesario para Express
+import { ExpressAdapter } from '@nestjs/platform-express';  // ExpressAdapter
+import express from 'express';  // Cambiar a default import para Express
 
 async function bootstrap() {
   const server = express();  // Crear una instancia de Express
-  const app = await NestFactory.create(AppModule, new ExpressAdapter(server));  // Adaptar NestJS a Express
+  const app = await NestFactory.create(AppModule, new ExpressAdapter(server));  // Usar ExpressAdapter correctamente
 
   // ✅ Validación global (usa class-validator en tus DTOs)
   app.useGlobalPipes(
