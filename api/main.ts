@@ -16,6 +16,8 @@ async function bootstrap() {
   app.enableCors({
     origin: [
       'http://localhost:3000',
+      'https://verco.store',
+      'https://www.verco.store',
       'https://verco-system-xdke.vercel.app',
       'https://verco-system-xdke-9j17ywjsu-yhorshuas-projects.vercel.app',
     ],
