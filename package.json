@@ -35,12 +35,13 @@
     "glob": "^13.0.0",
     "inflight": "^1.0.6",
     "mssql": "^11.0.1",
+    "mysql2": "^3.16.0",
     "openai": "^6.10.0",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
-    "typeorm": "^0.3.27"
+    "typeorm": "^0.3.28"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.2.0",

@@ -4,9 +4,10 @@ import { AppService } from './app.service';
 import { ProductsModule } from './products/products.module';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigModule } from '@nestjs/config';
-import { DatabaseModule } from './database/database.module'; // 👈 AÑADE ESTO
+import { DatabaseModule } from './database/database.module';
 import { UsersModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
+
 import { User } from './database/entities/user.entity';
 import { Product } from './database/entities/product.entity';
 import { Warehouse } from './database/entities/warehouse.entity';
@@ -24,9 +25,6 @@ import { Series } from './database/entities/series.entity';
 import { StockMovement } from './database/entities/stock-movements';
 import { Stock } from './database/entities/stock.entity';
 
-
-
-
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -34,19 +32,16 @@ import { Stock } from './database/entities/stock.entity';
     }),
 
     TypeOrmModule.forRoot({
-      type: 'mssql',
-      host: process.env.DB_HOST || 'server-system-verco.database.windows.net',
-      username: process.env.DB_USER || 'server-verco',
-      password: process.env.DB_PASS || 'Ventas@123',
-      database: process.env.DB_NAME || 'bd_verco',
-      synchronize: false,
-      options: {
-        encrypt: true,
-        trustServerCertificate: true,
-      },
+      type: 'mysql',                                      // 👈 CAMBIADO
+      host: process.env.DB_HOST,                         // 👈 Host de Hostinger
+      port: Number(process.env.DB_PORT) || 3306,         // 👈 Puerto MySQL
+      username: process.env.DB_USER,
+      password: process.env.DB_PASS,
+      database: process.env.DB_NAME,
+      synchronize: false,                                // true solo en desarrollo
       retryAttempts: 10,
       retryDelay: 5000,
-      connectionTimeout: 30000,
+      connectTimeout: 30000,                             // en mysql se llama connectTimeout
       entities: [
         User,
         Product,
@@ -54,28 +49,25 @@ import { Stock } from './database/entities/stock.entity';
         Order,
         OrderDetail,
         ProductSize,
-        Product,
         Client,
         DocumentType,
         InventoryMovement,
         OrderStatus,
-        OrderDetail,
         Role,
         Sale,
         SaleDetail,
         Series,
         StockMovement,
         Stock,
-        OrderStatus  
       ],
     }),
 
     ProductsModule,
     DatabaseModule,
-    UsersModule, // 👈 AGREGA AQUÍ
+    UsersModule,
     AuthModule,
   ],
   controllers: [AppController],
   providers: [AppService],
 })
-export class AppModule { }
+export class AppModule {}
