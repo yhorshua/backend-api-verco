@@ -22,12 +22,12 @@ export class SaleDetail {
   @JoinColumn({ name: 'product_id' })
   product: Product;
 
-  @Column({ nullable: true })
-  product_size_id: number;
+  @Column({ nullable: true, type: 'int' })
+  product_size_id: number | null;
 
-  @ManyToOne(() => ProductSize)
+  @ManyToOne(() => ProductSize, { nullable: true })
   @JoinColumn({ name: 'product_size_id' })
-  productSize: ProductSize;
+  productSize: ProductSize | null;
 
   @Column('decimal', { precision: 10, scale: 2 })
   quantity: number;

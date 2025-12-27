@@ -1,11 +1,12 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { Repository, DataSource, EntityManager } from 'typeorm';
+
 import { Stock } from '../database/entities/stock.entity';
 import { StockMovement } from '../database/entities/stock-movements';
 import { Sale } from '../database/entities/sale.entity';
 import { SaleDetail } from '../database/entities/sale-detail.entity';
-import { CreateMovementDto } from './dto/create-movement.dto';
+import { WarehouseSaleSequence } from '../database/entities/warehouse-sale-sequence.entity';
 import { CreateSaleDto } from './dto/create-sale.dto';
 
 @Injectable()
@@ -13,158 +14,187 @@ export class StockService {
   constructor(
     @InjectRepository(Stock)
     private readonly stockRepo: Repository<Stock>,
+
     @InjectRepository(StockMovement)
     private readonly movementRepo: Repository<StockMovement>,
+
     @InjectRepository(Sale)
     private readonly saleRepo: Repository<Sale>,
+
     @InjectRepository(SaleDetail)
     private readonly saleDetailRepo: Repository<SaleDetail>,
+
+    @InjectRepository(WarehouseSaleSequence)
+    private readonly seqRepo: Repository<WarehouseSaleSequence>,
+
     private readonly dataSource: DataSource,
   ) {}
 
   /**
-   * Consultar stock por tienda (warehouse)
+   * ✅ Registrar venta con múltiples items + correlativo por tienda (V00001)
    */
-  async getStockByWarehouse(warehouseId: number): Promise<Stock[]> {
-    return await this.stockRepo.find({
-      where: { warehouse_id: warehouseId },
-      relations: ['product', 'productSize'],
-    });
-  }
+  async registerSale(dto: CreateSaleDto): Promise<{ sale: Sale; movements: StockMovement[] }> {
+    if (!dto.items?.length) {
+      throw new BadRequestException('La venta debe incluir al menos 1 item');
+    }
 
-  /**
-   * Registrar ingreso de mercadería
-   */
-  async registerIncoming(dto: CreateMovementDto): Promise<StockMovement> {
-    const movement = this.movementRepo.create({
-      ...dto,
-      movement_type: 'entrada',
-      quantity: Math.abs(dto.quantity),
-    });
-    await this.movementRepo.save(movement);
+    return this.dataSource.transaction(async (manager) => {
+      // 1) Validar que el warehouse exista y sea tipo "tienda"
+      const warehouseRows = await manager.query(
+        `SELECT id, type FROM Warehouses WHERE id = ? LIMIT 1`,
+        [dto.warehouse_id],
+      );
 
-    await this.stockRepo.increment(
-      {
-        warehouse_id: dto.warehouse_id,
-        product_id: dto.product_id,
-        product_size_id: dto.product_size_id,
-      },
-      'quantity',
-      dto.quantity,
-    );
-
-    return movement;
-  }
-
-  /**
-   * Registrar venta (crea Sale, SaleDetail y StockMovement)
-   */
-  async registerSale(dto: CreateSaleDto): Promise<{ sale: Sale; movement: StockMovement }> {
-    return await this.dataSource.transaction(async manager => {
-      // 1. Validar stock
-      const stock = await manager.findOne(Stock, {
-        where: {
-          warehouse_id: dto.warehouse_id,
-          product_id: dto.product_id,
-          product_size_id: dto.product_size_id,
-        },
-        relations: ['product'],
-      });
-      if (!stock || stock.quantity < dto.quantity) {
-        throw new NotFoundException('Stock insuficiente para la venta');
+      if (!warehouseRows.length) {
+        throw new NotFoundException(`Warehouse con id=${dto.warehouse_id} no existe`);
       }
 
-      // 2. Crear cabecera de venta
+      if (warehouseRows[0].type !== 'tienda') {
+        throw new BadRequestException(
+          `Solo warehouses tipo "tienda" pueden registrar ventas. warehouse_id=${dto.warehouse_id}`,
+        );
+      }
+
+      // 2) Generar correlativo por tienda (V00001)
+      const sale_code = await this.getNextSaleCode(manager, dto.warehouse_id);
+
+      // 3) Validar stock y calcular total
+      let total_amount = 0;
+
+      const validated: Array<{
+        item: {
+          product_id: number;
+          product_size_id?: number;
+          quantity: number;
+          unit_of_measure: string;
+        };
+        unit_price: number;
+      }> = [];
+
+      for (const item of dto.items) {
+        // Manejo correcto de talla NULL
+        const where: any = {
+          warehouse_id: dto.warehouse_id,
+          product_id: item.product_id,
+          product_size_id: item.product_size_id ?? null,
+        };
+
+        const stock = await manager.findOne(Stock, {
+          where,
+          relations: ['product'],
+        });
+
+        if (!stock) {
+          throw new NotFoundException(
+            `No existe stock para product_id=${item.product_id}, size=${item.product_size_id ?? 'N/A'} en warehouse=${dto.warehouse_id}`,
+          );
+        }
+
+        if (Number(stock.quantity) < Number(item.quantity)) {
+          throw new NotFoundException(
+            `Stock insuficiente: product_id=${item.product_id}, size=${item.product_size_id ?? 'N/A'} (disp=${stock.quantity}, req=${item.quantity})`,
+          );
+        }
+
+        const unit_price = Number(stock.product.unit_price);
+        total_amount += Number(item.quantity) * unit_price;
+
+        validated.push({ item, unit_price });
+      }
+
+      // 4) Crear cabecera de venta
       const sale = manager.create(Sale, {
+        sale_code,
         warehouse_id: dto.warehouse_id,
         user_id: dto.user_id,
         customer_id: dto.customer_id,
-        total_amount: dto.quantity * stock.product.unit_price,
+        total_amount: Number(total_amount.toFixed(2)),
         payment_method: dto.payment_method,
       });
+
       await manager.save(Sale, sale);
 
-      // 3. Crear detalle de venta
-      const saleDetail = manager.create(SaleDetail, {
-        sale_id: sale.id,
-        product_id: dto.product_id,
-        product_size_id: dto.product_size_id,
-        quantity: dto.quantity,
-        unit_price: stock.product.unit_price,
-      });
-      await manager.save(SaleDetail, saleDetail);
+      // 5) Crear detalles + movimientos + descontar stock
+      const movements: StockMovement[] = [];
 
-      // 4. Registrar movimiento de stock
-      const movement = manager.create(StockMovement, {
-        warehouse_id: dto.warehouse_id,
-        product_id: dto.product_id,
-        product_size_id: dto.product_size_id,
-        quantity: -Math.abs(dto.quantity),
-        unit_of_measure: dto.unit_of_measure, // o lo que venga en DTO
-        movement_type: 'salida',
-        reference: `Venta #${sale.id}`,
-        user_id: dto.user_id,
-      });
-      await manager.save(StockMovement, movement);
+      for (const { item, unit_price } of validated) {
+        // 5.1 Detalle de venta
+        const detail = manager.create(SaleDetail, {
+          sale_id: sale.id,
+          product_id: item.product_id,
+          product_size_id: item.product_size_id ?? null,
+          quantity: item.quantity,
+          unit_price: unit_price,
+        });
+        await manager.save(SaleDetail, detail);
 
-      // 5. Actualizar stock
-      await manager.decrement(
-        Stock,
-        {
+        // 5.2 Movimiento de stock (salida)
+        const movement = manager.create(StockMovement, {
           warehouse_id: dto.warehouse_id,
-          product_id: dto.product_id,
-          product_size_id: dto.product_size_id,
-        },
-        'quantity',
-        dto.quantity,
-      );
+          product_id: item.product_id,
+          product_size_id: item.product_size_id ?? null,
+          quantity: -Math.abs(Number(item.quantity)),
+          unit_of_measure: item.unit_of_measure,
+          movement_type: 'salida',
+          reference: `Venta ${sale.sale_code}`,
+          user_id: dto.user_id,
+        });
+        await manager.save(StockMovement, movement);
+        movements.push(movement);
 
-      return { sale, movement };
+        // 5.3 Descontar stock
+        await manager.decrement(
+          Stock,
+          {
+            warehouse_id: dto.warehouse_id,
+            product_id: item.product_id,
+            product_size_id: item.product_size_id ?? null,
+          },
+          'quantity',
+          item.quantity,
+        );
+      }
+
+      return { sale, movements };
     });
   }
 
   /**
-   * Registrar devolución
+   * 🔒 Genera el siguiente V00001 por tienda
+   * - FOR UPDATE bloquea la fila de esa tienda
+   * - INSERT IGNORE evita errores si dos ventas intentan crear la secuencia a la vez
    */
-  async registerReturn(dto: CreateMovementDto): Promise<StockMovement> {
-    const movement = this.movementRepo.create({
-      ...dto,
-      movement_type: 'entrada',
-      quantity: Math.abs(dto.quantity),
-    });
-    await this.movementRepo.save(movement);
-
-    await this.stockRepo.increment(
-      {
-        warehouse_id: dto.warehouse_id,
-        product_id: dto.product_id,
-        product_size_id: dto.product_size_id,
-      },
-      'quantity',
-      dto.quantity,
+  private async getNextSaleCode(manager: EntityManager, warehouseId: number): Promise<string> {
+    // Bloquea SOLO la fila de esa tienda (si existe)
+    let rows = await manager.query(
+      `SELECT last_number FROM WarehouseSaleSequence WHERE warehouse_id = ? FOR UPDATE`,
+      [warehouseId],
     );
 
-    return movement;
-  }
+    // Si no existe, créala de forma segura (concurrencia)
+    if (!rows.length) {
+      await manager.query(
+        `INSERT IGNORE INTO WarehouseSaleSequence (warehouse_id, last_number) VALUES (?, 0)`,
+        [warehouseId],
+      );
 
-  /**
-   * Reporte de movimientos por día
-   */
-  async getMovementsByDay(date: string): Promise<StockMovement[]> {
-    return await this.movementRepo
-      .createQueryBuilder('movement')
-      .where('CAST(movement.created_at AS DATE) = :date', { date })
-      .getMany();
-  }
+      rows = await manager.query(
+        `SELECT last_number FROM WarehouseSaleSequence WHERE warehouse_id = ? FOR UPDATE`,
+        [warehouseId],
+      );
 
-  /**
-   * Reporte de movimientos por mes
-   */
-  async getMovementsByMonth(year: number, month: number): Promise<StockMovement[]> {
-    return await this.movementRepo
-      .createQueryBuilder('movement')
-      .where('YEAR(movement.created_at) = :year', { year })
-      .andWhere('MONTH(movement.created_at) = :month', { month })
-      .getMany();
+      if (!rows.length) {
+        throw new NotFoundException(`No se pudo inicializar secuencia para warehouse_id=${warehouseId}`);
+      }
+    }
+
+    const next = Number(rows[0].last_number) + 1;
+
+    await manager.query(
+      `UPDATE WarehouseSaleSequence SET last_number = ? WHERE warehouse_id = ?`,
+      [next, warehouseId],
+    );
+
+    return `V${String(next).padStart(5, '0')}`;
   }
 }

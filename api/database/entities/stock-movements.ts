@@ -48,7 +48,7 @@ export class StockMovement {
   @Column({ nullable: true })
   reference: string; // doc, pedido, motivo
 
-  @Column({ type: 'datetime', default: () => 'GETDATE()' })
+  @Column({ type: 'datetime', default: () => 'CURRENT_TIMESTAMP' })
   created_at: Date;
 
   @Column({ nullable: true })

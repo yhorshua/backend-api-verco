@@ -1,19 +1,7 @@
-import { IsNumber, IsOptional, IsString } from 'class-validator';
+import { Type } from 'class-transformer';
+import { ArrayMinSize, IsArray, IsNumber, IsOptional, IsString, ValidateNested } from 'class-validator';
 
-export class CreateSaleDto {
-  @IsNumber()
-  warehouse_id: number;
-
-  @IsNumber()
-  user_id: number; // vendedor
-
-  @IsOptional()
-  @IsNumber()
-  customer_id?: number;
-
-  @IsString()
-  payment_method: string; // EFECTIVO, YAPE, TRANSFERENCIA, TARJETA
-
+class CreateSaleItemDto {
   @IsNumber()
   product_id: number;
 
@@ -26,4 +14,25 @@ export class CreateSaleDto {
 
   @IsString()
   unit_of_measure: string;
+}
+
+export class CreateSaleDto {
+  @IsNumber()
+  warehouse_id: number;
+
+  @IsNumber()
+  user_id: number;
+
+  @IsOptional()
+  @IsNumber()
+  customer_id?: number;
+
+  @IsString()
+  payment_method: string;
+
+  @IsArray()
+  @ArrayMinSize(1)
+  @ValidateNested({ each: true })
+  @Type(() => CreateSaleItemDto)
+  items: CreateSaleItemDto[];
 }

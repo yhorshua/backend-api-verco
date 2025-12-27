@@ -8,6 +8,10 @@ export class Sale {
   @PrimaryGeneratedColumn()
   id: number;
 
+  // ✅ NUEVO: código por tienda V00001
+  @Column({ length: 10 })
+  sale_code: string;
+
   @Column()
   warehouse_id: number;
 
@@ -25,7 +29,8 @@ export class Sale {
   @Column({ nullable: true })
   customer_id: number;
 
-  @Column({ type: 'datetime', default: () => 'GETDATE()' })
+  // ✅ MySQL: CURRENT_TIMESTAMP
+  @Column({ type: 'datetime', default: () => 'CURRENT_TIMESTAMP' })
   sale_date: Date;
 
   @Column('decimal', { precision: 10, scale: 2 })
