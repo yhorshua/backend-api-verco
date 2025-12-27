@@ -197,4 +197,69 @@ export class StockService {
 
     return `V${String(next).padStart(5, '0')}`;
   }
+
+  async getProductStockByWarehouseAndArticleCode(
+  warehouseId: number,
+  articleCode: string,
+) {
+  const code = (articleCode || '').trim().toUpperCase();
+  if (!code) throw new BadRequestException('articleCode es requerido');
+
+  // Trae SOLO stock de ese warehouse y ese producto (por article_code)
+  const rows = await this.stockRepo
+    .createQueryBuilder('s')
+    .innerJoinAndSelect('s.product', 'p')
+    .leftJoinAndSelect('s.productSize', 'ps')
+    .leftJoinAndSelect('p.series', 'series')
+    .leftJoinAndSelect('p.sizes', 'sizes') // catálogo de tallas del producto (opcional)
+    .where('s.warehouse_id = :warehouseId', { warehouseId })
+    .andWhere('p.status = 1')
+    .andWhere('UPPER(p.article_code) = :code', { code })
+    .orderBy('ps.size', 'ASC')
+    .getMany();
+
+  if (!rows.length) {
+    throw new NotFoundException(
+      `No hay stock para warehouse=${warehouseId} y article_code=${code}`,
+    );
+  }
+
+  const p = rows[0].product;
+
+  // Armado de respuesta "amigable" para frontend
+  return {
+    product_id: p.id,
+    article_code: p.article_code,
+    article_description: p.article_description,
+    article_series: p.article_series,
+    type_origin: p.type_origin,
+    manufacturing_cost: Number(p.manufacturing_cost), // costo fabricación/compra
+    unit_price: Number(p.unit_price),                 // precio venta
+    brand_name: p.brand_name,
+    model_code: p.model_code,
+    category: p.category,
+    material_type: p.material_type,
+    color: p.color,
+    stock_minimum: p.stock_minimum,
+    product_image: p.product_image,
+    status: p.status,
+    created_at: p.created_at,
+
+    series: p.series ?? null,
+    sizes: p.sizes ?? [],
+
+    stock: rows.map((s) => ({
+      stock_id: s.id,
+      warehouse_id: s.warehouse_id,
+      product_id: s.product_id,
+      product_size_id: s.product_size_id,
+      size: s.productSize?.size ?? null, // "27","28"... (string)
+      quantity: Number(s.quantity),
+      unit_of_measure: s.unit_of_measure,
+    })),
+
+    // útil para tu UI
+    saldo_total: rows.reduce((acc, s) => acc + Number(s.quantity || 0), 0),
+  };
+}
 }

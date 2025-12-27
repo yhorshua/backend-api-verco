@@ -7,20 +7,28 @@ import { CreateSaleDto } from './dto/create-sale.dto';
 export class StockController {
   constructor(private readonly stockService: StockService) {}
 
-  @Get('warehouse/:warehouseId')
-  getStockByWarehouse(@Param('warehouseId') warehouseId: string) {
-    return this.stockService.getStockByWarehouse(+warehouseId);
+  @Get('by-warehouse/:warehouseId/article/:articleCode')
+  getByWarehouseAndArticle(
+    @Param('warehouseId') warehouseId: string,
+    @Param('articleCode') articleCode: string,
+  ) {
+    return this.stockService.getProductStockByWarehouseAndArticleCode(
+      +warehouseId,
+      articleCode,
+    );
+  }
+  
+  @Post('sale')
+  registerSale(@Body() dto: CreateSaleDto) {
+    return this.stockService.registerSale(dto);
   }
 
+/*
   @Post('incoming')
   registerIncoming(@Body() dto: CreateMovementDto) {
     return this.stockService.registerIncoming(dto);
   }
 
-  @Post('sale')
-  registerSale(@Body() dto: CreateSaleDto) {
-    return this.stockService.registerSale(dto);
-  }
 
   @Post('return')
   registerReturn(@Body() dto: CreateMovementDto) {
@@ -36,4 +44,5 @@ export class StockController {
   getMovementsByMonth(@Param('year') year: string, @Param('month') month: string) {
     return this.stockService.getMovementsByMonth(+year, +month);
   }
+    */
 }
