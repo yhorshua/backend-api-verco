@@ -7,9 +7,14 @@ import { UpdateProductDto } from './dto/update-product.dto';
 export class ProductsController {
   constructor(private readonly productsService: ProductsService) { }
 
-  @Post()
-  create(@Body() createProductDto: CreateProductDto) {
-    return this.productsService.create(createProductDto);
+  @Get('warehouse/:warehouseId')
+  findByWarehouse(@Param('warehouseId') warehouseId: string) {
+    return this.productsService.findByWarehouse(+warehouseId);
+  }
+
+  @Get(':id')
+  findOne(@Param('id') id: string) {
+    return this.productsService.findOne(+id);
   }
 
   @Get()
@@ -17,9 +22,9 @@ export class ProductsController {
     return this.productsService.findAll();
   }
 
-  @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.productsService.findOne(+id);
+  @Post()
+  create(@Body() createProductDto: CreateProductDto) {
+    return this.productsService.create(createProductDto);
   }
 
   @Patch(':id')
@@ -30,10 +35,5 @@ export class ProductsController {
   @Patch(':id/disable')
   disable(@Param('id') id: string) {
     return this.productsService.disable(+id);
-  }
-
-  @Get('warehouse/:warehouseId')
-  findByWarehouse(@Param('warehouseId') warehouseId: string) {
-    return this.productsService.findByWarehouse(+warehouseId);
   }
 }
