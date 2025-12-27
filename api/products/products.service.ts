@@ -52,13 +52,15 @@ export class ProductsService {
    * Consultar productos disponibles en un almacén específico
    */
   async findByWarehouse(warehouseId: number): Promise<Product[]> {
-  return await this.productRepo
-    .createQueryBuilder('product')
-    .leftJoinAndSelect('product.sizes', 'sizes')
-    .leftJoinAndSelect('product.series', 'series')
-    .leftJoinAndSelect('product.stock', 'stock') // ✅ ahora sí mapea product.stock[]
-    .where('stock.warehouse_id = :warehouseId', { warehouseId })
-    .andWhere('product.status = 1')
-    .getMany();
-}
+    return await this.productRepo
+      .createQueryBuilder('product')
+      .leftJoinAndSelect('product.sizes', 'sizes')
+      .leftJoinAndSelect('product.series', 'series')
+      .leftJoinAndSelect('product.stock', 'stock')
+      .leftJoinAndSelect('stock.productSize', 'stockSize') // ✅ AÑADE ESTO
+      .where('stock.warehouse_id = :warehouseId', { warehouseId })
+      .andWhere('product.status = 1')
+      .getMany();
+  }
+
 }
