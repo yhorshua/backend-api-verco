@@ -24,6 +24,7 @@ import { SaleDetail } from './database/entities/sale-detail.entity';
 import { Series } from './database/entities/series.entity';
 import { StockMovement } from './database/entities/stock-movements';
 import { Stock } from './database/entities/stock.entity';
+import { StockModule } from './products/stock.module';
 
 @Module({
   imports: [
@@ -66,6 +67,7 @@ import { Stock } from './database/entities/stock.entity';
     DatabaseModule,
     UsersModule,
     AuthModule,
+    StockModule,
   ],
   controllers: [AppController],
   providers: [AppService],
