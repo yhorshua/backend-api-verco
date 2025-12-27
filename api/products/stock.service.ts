@@ -132,7 +132,7 @@ export class StockService {
         const movement = manager.create(StockMovement, {
           warehouse_id: dto.warehouse_id,
           product_id: item.product_id,
-          product_size_id: item.product_size_id ?? null,
+          product_size_id: item.product_size_id ?? undefined,
           quantity: -Math.abs(Number(item.quantity)),
           unit_of_measure: item.unit_of_measure,
           movement_type: 'salida',
