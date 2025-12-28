@@ -2,6 +2,8 @@ import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn, OneToMan
 import { Warehouse } from './warehouse.entity';
 import { User } from './user.entity';
 import { SaleDetail } from './sale-detail.entity';
+import { SalePayment } from './sale-payments.entity';
+
 
 @Entity('Sales')
 export class Sale {
@@ -41,4 +43,8 @@ export class Sale {
 
   @OneToMany(() => SaleDetail, detail => detail.sale)
   details: SaleDetail[];
+
+  @OneToMany(() => SalePayment, (p) => p.sale)
+  payments: SalePayment[];
+
 }

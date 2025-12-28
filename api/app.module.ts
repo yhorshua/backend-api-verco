@@ -25,6 +25,10 @@ import { Series } from './database/entities/series.entity';
 import { StockMovement } from './database/entities/stock-movements';
 import { Stock } from './database/entities/stock.entity';
 import { StockModule } from './products/stock.module';
+import { CashMovement } from './database/entities/cash-movement.entity';
+import { CashRegisterSession } from './database/entities/cash-register-session.entity';
+import { SalePayment } from './database/entities/sale-payments.entity';
+import { WarehouseSaleSequence } from './database/entities/warehouse-sale-sequence.entity';
 
 @Module({
   imports: [
@@ -60,6 +64,10 @@ import { StockModule } from './products/stock.module';
         Series,
         StockMovement,
         Stock,
+        CashMovement,
+        CashRegisterSession,
+        SalePayment,
+        WarehouseSaleSequence,
       ],
     }),
 

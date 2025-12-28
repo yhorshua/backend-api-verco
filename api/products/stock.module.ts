@@ -9,6 +9,9 @@ import { WarehouseSaleSequence } from '../database/entities/warehouse-sale-seque
 
 import { StockController } from './stock.controller';
 import { StockService } from './stock.service';
+import { SalePayment } from 'api/database/entities/sale-payments.entity';
+import { CashRegisterSession } from 'api/database/entities/cash-register-session.entity';
+import { CashMovement } from 'api/database/entities/cash-movement.entity';
 
 @Module({
   imports: [
@@ -18,10 +21,13 @@ import { StockService } from './stock.service';
       Sale,
       SaleDetail,
       WarehouseSaleSequence,
+      SalePayment,
+      CashRegisterSession,
+      CashMovement,
     ]),
   ],
   controllers: [StockController],
   providers: [StockService],
   exports: [StockService],
 })
-export class StockModule {}
+export class StockModule { }
