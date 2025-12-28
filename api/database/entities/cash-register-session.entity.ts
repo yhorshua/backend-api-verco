@@ -43,8 +43,11 @@ export class CashRegisterSession {
   @Column({ length: 10, default: 'OPEN' })
   status: 'OPEN' | 'CLOSED';
 
-  @Column({ nullable: true, length: 255 })
+  // CashRegisterSession entity
+  @Column({ type: 'varchar', length: 255, nullable: true })
   notes: string | null;
+
+
 
   @OneToMany(() => CashMovement, (m) => m.session)
   movements: CashMovement[];
