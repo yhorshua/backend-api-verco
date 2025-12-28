@@ -7,7 +7,7 @@ export class SalePayment {
   @PrimaryGeneratedColumn()
   id: number;
 
-  @Column()
+  @Column({ type: 'int' })
   sale_id: number;
 
   @ManyToOne(() => Sale, (sale) => sale.payments, { onDelete: 'CASCADE' })
@@ -15,7 +15,7 @@ export class SalePayment {
   sale: Sale;
 
   // efectivo, yape, plin, tarjetaDebito, tarjetaCredito, obsequio
-  @Column({ length: 20 })
+  @Column({ type: 'varchar', length: 20 })
   method: string;
 
   // monto cubierto por ese método (en mixto se parte)
@@ -23,7 +23,7 @@ export class SalePayment {
   amount: number;
 
   // nro operación (yape/plin/tarjetas)
-  @Column({ nullable: true, length: 50 })
+  @Column({ type: 'varchar', length: 50, nullable: true })
   operation_number: string | null;
 
   // solo para efectivo
@@ -34,7 +34,8 @@ export class SalePayment {
   cash_change: number | null;
 
   // motivo obsequio / autorizado por / notas
-  @Column({ nullable: true, length: 255 })
+  // ✅ si quieres más texto, usa 'text' en vez de varchar(255)
+  @Column({ type: 'varchar', length: 255, nullable: true })
   notes: string | null;
 
   @Column({ type: 'datetime', default: () => 'CURRENT_TIMESTAMP' })
