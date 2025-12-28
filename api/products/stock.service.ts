@@ -110,7 +110,7 @@ export class StockService {
     const rows = await manager.query(
       `SELECT id
        FROM CashRegisterSessions
-       WHERE warehouse_id = ? AND user_id = ? AND status = 'OPEN'
+       WHERE warehouse_id = ? AND status = 'OPEN'
        ORDER BY opened_at DESC
        LIMIT 1
        FOR UPDATE`,
