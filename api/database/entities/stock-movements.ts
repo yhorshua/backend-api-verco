@@ -29,8 +29,8 @@ export class StockMovement {
   @JoinColumn({ name: 'product_id' })
   product: Product;
 
-  @Column({ nullable: true })
-  product_size_id: number;
+  @Column({ nullable: true, type: 'int' })
+  product_size_id: number | null;
 
   @ManyToOne(() => ProductSize, { onDelete: 'SET NULL' })
   @JoinColumn({ name: 'product_size_id' })
