@@ -256,9 +256,6 @@ export class StockService {
     const total = Number(sale.total_amount);
     const p: any = dto.payment || {};
 
-    // (Opcional) asegura __method para las ValidateIf si lo usas
-    if (dto.payment) dto.payment.__method = dto.payment_method;
-
     const payments: SalePayment[] = [];
 
     const savePayment = async (payload: Partial<SalePayment>) => {
