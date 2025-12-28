@@ -9,9 +9,9 @@ import { WarehouseSaleSequence } from '../database/entities/warehouse-sale-seque
 
 import { StockController } from './stock.controller';
 import { StockService } from './stock.service';
-import { SalePayment } from 'api/database/entities/sale-payments.entity';
-import { CashRegisterSession } from 'api/database/entities/cash-register-session.entity';
-import { CashMovement } from 'api/database/entities/cash-movement.entity';
+import { SalePayment } from '../database/entities/sale-payments.entity';
+import { CashRegisterSession } from '../database/entities/cash-register-session.entity';
+import { CashMovement } from '../database/entities/cash-movement.entity';
 
 @Module({
   imports: [
