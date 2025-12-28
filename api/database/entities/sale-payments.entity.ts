@@ -24,7 +24,7 @@ export class SalePayment {
 
   // nro operación (yape/plin/tarjetas)
   @Column({ type: 'varchar', length: 50, nullable: true })
-  operation_number: string | null;
+  operation_number?: string;
 
   // solo para efectivo
   @Column('decimal', { precision: 10, scale: 2, nullable: true })
