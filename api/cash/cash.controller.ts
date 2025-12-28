@@ -14,32 +14,26 @@ import { Roles } from '../auth/roles.decorator';
 export class CashController {
   constructor(private readonly cashService: CashService) {}
 
-  // Solo un rol autorizado puede abrir/cerrar caja (ajústalo)
-  @Roles('admin', 'encargado', 'vendedor')
   @Post('open')
   open(@Body() dto: OpenCashDto) {
     return this.cashService.openCash(dto);
   }
 
-  @Roles('admin', 'encargado', 'vendedor')
   @Get('status/:warehouseId')
   status(@Param('warehouseId') warehouseId: string) {
     return this.cashService.getStatus(Number(warehouseId));
   }
 
-  @Roles('admin', 'encargado', 'vendedor')
   @Get('movements/:sessionId')
   movements(@Param('sessionId') sessionId: string) {
     return this.cashService.getMovementsAndSummary(Number(sessionId));
   }
 
-  @Roles('admin', 'encargado', 'vendedor')
   @Post('expense')
   expense(@Body() dto: ExpenseDto) {
     return this.cashService.registerExpense(dto);
   }
 
-  @Roles('admin', 'encargado') // normalmente solo encargado/admin cierra
   @Post('close')
   close(@Body() dto: CloseCashDto) {
     return this.cashService.closeCash(dto);
