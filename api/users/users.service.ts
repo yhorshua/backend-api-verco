@@ -1,9 +1,15 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from '../database/entities/user.entity';
 import * as bcrypt from 'bcrypt';
 import { CreateUserDto } from './create-user.dto';
+import {SellersByWarehouseQueryDto} from './dto/sellers-by-warehouse.query.dto'
+
+export type WarehouseUserOption = {
+  id: number;
+  full_name: string;
+};
 
 @Injectable()
 export class UsersService {
@@ -47,4 +53,23 @@ export class UsersService {
      async findByEmail(email: string): Promise<User | null> {
     return this.userRepo.findOne({ where: { email }, relations: ['role'] });
   }
+
+  async getUsersByWarehouse(dto: SellersByWarehouseQueryDto) {
+  const { warehouseId } = dto;
+
+  if (!Number.isInteger(warehouseId) || warehouseId < 1) {
+    throw new BadRequestException('warehouseId inválido');
+  }
+
+  const users = await this.userRepo.find({
+    select: { id: true, full_name: true },
+    where: {
+      warehouse_id: warehouseId,
+      state_user: true,
+    },
+    order: { full_name: 'ASC' },
+  });
+
+  return users.map((u) => ({ id: u.id, full_name: u.full_name }));
+}
 }
