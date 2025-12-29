@@ -30,6 +30,7 @@ import { CashRegisterSession } from './database/entities/cash-register-session.e
 import { SalePayment } from './database/entities/sale-payments.entity';
 import { WarehouseSaleSequence } from './database/entities/warehouse-sale-sequence.entity';
 import { CashModule } from './cash/cash.module';
+import { ReportsModule } from './report/reports.module';
 
 @Module({
   imports: [
@@ -78,6 +79,7 @@ import { CashModule } from './cash/cash.module';
     AuthModule,
     StockModule,
     CashModule,
+    ReportsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
