@@ -5,17 +5,19 @@ import { CreateClientDto } from './dto/create-client.dto';
 
 @Controller('clients')
 export class ClientsController {
-  constructor(private readonly clientsService: ClientsService) { }
+  constructor(private readonly clientsService: ClientsService) {}
 
+  @UseGuards(JwtAuthGuard)
   @Get('mine')
   async mine(@Request() req) {
     return this.clientsService.findForUser(req.user.userId, req.user.role);
   }
 
+  @UseGuards(JwtAuthGuard)
   @Post()
   @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
   async create(@Body() dto: CreateClientDto, @Request() req) {
-    const sellerId = req.user.userId; // ✅ viene de JwtStrategy validate()
+    const sellerId = req.user.userId;
     return this.clientsService.createOrClaim(dto, sellerId);
   }
 }
