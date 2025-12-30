@@ -33,6 +33,7 @@ import { CashModule } from './cash/cash.module';
 import { ReportsModule } from './report/reports.module';
 import { RolesModule } from './rol/roles.module';
 import { WarehousesModule } from './warehouses/warehouses.module';
+import { ClientsModule } from './clients/clients.module';
 
 @Module({
   imports: [
@@ -84,6 +85,7 @@ import { WarehousesModule } from './warehouses/warehouses.module';
     ReportsModule,
     RolesModule,
     WarehousesModule,
+    ClientsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
