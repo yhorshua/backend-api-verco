@@ -108,4 +108,31 @@ export class ClientsService {
 
     return this.clientRepository.save(existing);
   }
+
+  async findForUser(userId: number, roleName: string) {
+    const role = String(roleName || '').trim().toLowerCase();
+
+    // ✅ Roles que ven TODO
+    const canSeeAll =
+      role === 'administrador' ||
+      role === 'admin' ||
+      role === 'jefe ventas' ||
+      role === 'jefeventas' ||
+      role === 'jefe_de_ventas' ||
+      role === 'sales manager';
+
+    if (canSeeAll) {
+      return this.clientRepository.find({
+        order: { created_at: 'DESC' as any },
+        take: 500,
+      });
+    }
+
+    // ✅ vendedor ve solo sus clientes
+    return this.clientRepository.find({
+      where: { seller_id: userId } as any,
+      order: { created_at: 'DESC' as any },
+      take: 500,
+    });
+  }
 }
