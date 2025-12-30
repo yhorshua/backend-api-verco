@@ -31,6 +31,8 @@ import { SalePayment } from './database/entities/sale-payments.entity';
 import { WarehouseSaleSequence } from './database/entities/warehouse-sale-sequence.entity';
 import { CashModule } from './cash/cash.module';
 import { ReportsModule } from './report/reports.module';
+import { RolesModule } from './rol/roles.module';
+import { WarehousesModule } from './warehouses/warehouses.module';
 
 @Module({
   imports: [
@@ -80,6 +82,8 @@ import { ReportsModule } from './report/reports.module';
     StockModule,
     CashModule,
     ReportsModule,
+    RolesModule,
+    WarehousesModule,
   ],
   controllers: [AppController],
   providers: [AppService],

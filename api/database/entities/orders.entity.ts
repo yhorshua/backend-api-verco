@@ -60,4 +60,16 @@ export class Order {
   // OBSERVACIONES
   @Column({ length: 255, nullable: true })
   observations: string;
+
+  @Column({ nullable: true, type: 'int' })
+  id_guia_interna: number | null;
+
+  @Column({ nullable: true, type: 'int' })
+  id_factura: number | null;
+
+  @Column({ nullable: true, type: 'int' })
+  id_guia_remision: number | null;
+
+  @Column({ type: 'int' })
+  warehouse_id: number;
 }

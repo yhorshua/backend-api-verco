@@ -2,6 +2,7 @@ import { Controller, Get, Post, Put, Body, Param, UseGuards, Query, UsePipes, Va
 import { UsersService } from './users.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { SellersByWarehouseQueryDto } from './dto/sellers-by-warehouse.query.dto';
+import { CreateUserDto } from './create-user.dto';
 
 
 @Controller('users')
@@ -14,7 +15,7 @@ export class UsersController {
   async findAll() {
     return this.usersService.findAll();
   }
- // GET /users/by-warehouse?warehouseId=1
+  // GET /users/by-warehouse?warehouseId=1
   @Get('by-warehouse')
   @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
   getByWarehouse(@Query() dto: SellersByWarehouseQueryDto) {
@@ -28,10 +29,9 @@ export class UsersController {
   }
 
   @Post()
-  async create(@Body() userData: any) {
-    return this.usersService.create(userData);
+  create(@Body() dto: CreateUserDto) {
+    return this.usersService.create(dto);
   }
-
 
   @UseGuards(JwtAuthGuard)
   @Put(':id')
@@ -39,5 +39,5 @@ export class UsersController {
     return this.usersService.update(id, userData);
   }
 
-  
+
 }

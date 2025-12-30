@@ -1,16 +1,25 @@
-import { IsNotEmpty, IsOptional } from "class-validator";
+// src/modules/orders/dto/create-order.dto.ts
+import { IsArray, IsInt, IsNumber, IsOptional, IsString, ValidateNested } from 'class-validator';
+import { Type } from 'class-transformer';
+
+class CreateOrderItemDto {
+  @IsInt() product_id: number;
+  @IsOptional() product_size_id?: number | null;
+  @IsString() size: string;
+
+  @IsNumber() quantity: number;
+  @IsNumber() unit_price: number;
+}
 
 export class CreateOrderDto {
-  @IsNotEmpty() proforma_number: number;
-  @IsNotEmpty() client_id: number;
-  @IsNotEmpty() warehouse_id: number;
-  @IsOptional() observations?: string;
+  @IsInt() client_id: number;
+  @IsInt() user_id: number; // vendedor
+  @IsInt() warehouse_id: number;
 
-  @IsNotEmpty() details: {
-    product_id: number;
-    product_size_id?: number;
-    size: string;
-    quantity: number;
-    unit_price: number;
-  }[];
+  @IsOptional() @IsString() observations?: string;
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CreateOrderItemDto)
+  items: CreateOrderItemDto[];
 }
