@@ -12,21 +12,25 @@ export class WarehousesService {
   ) {}
 
   async create(dto: CreateWarehouseDto) {
-    const name = dto.name.trim();
+    const warehouse_name = dto.warehouse_name.trim();
 
-    const exists = await this.warehouseRepo.findOne({ where: { name } as any });
+    const exists = await this.warehouseRepo.findOne({
+      where: { warehouse_name } as any,
+    });
     if (exists) throw new BadRequestException('Ese warehouse ya existe');
 
     const wh = this.warehouseRepo.create({
-      name,
-      address: dto.address?.trim() ?? null,
-      phone: dto.phone?.trim() ?? null,
+      warehouse_name,
+      type: dto.type?.trim() ?? null,
+      location: dto.location?.trim() ?? null,
+      status: true,
     } as any);
 
     return this.warehouseRepo.save(wh);
   }
 
   async findAll() {
-    return this.warehouseRepo.find({ order: { name: 'ASC' } as any });
+    // ✅ ordenar por el campo correcto
+    return this.warehouseRepo.find({ order: { warehouse_name: 'ASC' } as any });
   }
 }
