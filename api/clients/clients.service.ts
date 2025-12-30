@@ -1,22 +1,31 @@
+// clients.service.ts
 import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Client } from '../database/entities/client.entity';
 import { CreateClientDto } from './dto/create-client.dto';
 
-function normalizeDocType(v: string) {
-  return String(v ?? '').trim().toUpperCase();
+function onlyDigits(s: string) {
+  return String(s ?? '').replace(/\D/g, '');
 }
-function normalizeDocNumber(v: string) {
+
+function normalizeCode(v: string) {
   return String(v ?? '').trim();
 }
-function normalizeText(v?: string) {
+
+function normalizeText(v?: string): string | null {
   const s = String(v ?? '').trim();
   return s.length ? s : null;
 }
 
+function validateDocByCode(code: string, num: string) {
+  const digits = onlyDigits(num);
+  if (code === '01' && digits.length !== 8) return 'DNI debe tener 8 dígitos';
+  if (code === '06' && digits.length !== 11) return 'RUC debe tener 11 dígitos';
+  return null;
+}
+
 function isStale(last: Date | null, months = 6) {
-  // si nunca tuvo pedido: consideramos “libre” (stale = true)
   if (!last) return true;
   const now = new Date();
   const cutoff = new Date(now);
@@ -31,28 +40,27 @@ export class ClientsService {
     private readonly clientRepository: Repository<Client>,
   ) {}
 
-  /**
-   * Crea cliente o devuelve el existente respetando la política de 6 meses.
-   */
   async createOrClaim(dto: CreateClientDto, sellerId: number) {
-    const document_type = normalizeDocType(dto.document_type);
-    const document_number = normalizeDocNumber(dto.document_number);
+    const document_type = normalizeCode(dto.document_type_code); // ✅ code
+    const document_number = onlyDigits(dto.document_number);
 
-    if (!document_type || !document_number) {
-      throw new BadRequestException('document_type y document_number son obligatorios');
+    const docErr = validateDocByCode(document_type, document_number);
+    if (docErr) throw new BadRequestException(docErr);
+
+    if (!dto.business_name?.trim()) {
+      throw new BadRequestException('Razón social / nombre es obligatorio');
     }
 
-    // 🔎 Buscar si ya existe
+    // 🔎 Buscar existente (mismo code+number)
     const existing = await this.clientRepository.findOne({
       where: { document_type, document_number } as any,
     });
 
-    // ✅ Si no existe, creamos y asignamos al vendedor
     if (!existing) {
       const client = this.clientRepository.create({
         document_type,
         document_number,
-        business_name: String(dto.business_name).trim(),
+        business_name: dto.business_name.trim(),
         trade_name: normalizeText(dto.trade_name),
         address: normalizeText(dto.address),
         district: normalizeText(dto.district),
@@ -69,32 +77,30 @@ export class ClientsService {
       try {
         return await this.clientRepository.save(client);
       } catch (e: any) {
-        // por si entra en carrera y el unique se dispara
-        throw new BadRequestException('Este cliente ya está registrado');
+        // ✅ NO conviertas todos los errores en "ya existe"
+        // Solo si es duplicado (MySQL ER_DUP_ENTRY = 1062)
+        if (e?.code === 'ER_DUP_ENTRY' || e?.errno === 1062) {
+          throw new BadRequestException('Este cliente ya está registrado');
+        }
+        throw e;
       }
     }
 
-    // ✅ Si existe:
-    // Si está libre -> se asigna
+    // si existe: política 6 meses
     if (!existing.seller_id) {
       existing.seller_id = sellerId;
     } else if (existing.seller_id !== sellerId) {
-      // cliente pertenece a otro vendedor
       const stale = isStale(existing.last_order_at, 6);
-
       if (!stale) {
-        // ❌ no está libre aún
         throw new ForbiddenException(
           'Este cliente pertenece a otro vendedor (aún activo). Solo pasa a libre después de 6 meses sin pedidos.',
         );
       }
-
-      // ✅ está libre por inactividad -> reasignar
       existing.seller_id = sellerId;
     }
 
-    // opcional: actualizar datos si vienen (sin pisar con vacío)
-    existing.business_name = String(dto.business_name).trim();
+    // actualizar datos (sin pisar con vacío)
+    existing.business_name = dto.business_name.trim();
     if (dto.trade_name !== undefined) existing.trade_name = normalizeText(dto.trade_name);
     if (dto.address !== undefined) existing.address = normalizeText(dto.address);
     if (dto.district !== undefined) existing.district = normalizeText(dto.district);
@@ -105,30 +111,17 @@ export class ClientsService {
     if (dto.email !== undefined) existing.email = normalizeText(dto.email);
 
     existing.updated_at = new Date();
-
     return this.clientRepository.save(existing);
   }
 
   async findForUser(userId: number, roleName: string) {
-    const role = String(roleName || '').trim().toLowerCase();
+    const role = String(roleName || '').toLowerCase();
 
-    // ✅ Roles que ven TODO
-    const canSeeAll =
-      role === 'administrador' ||
-      role === 'admin' ||
-      role === 'jefe ventas' ||
-      role === 'jefeventas' ||
-      role === 'jefe_de_ventas' ||
-      role === 'sales manager';
-
-    if (canSeeAll) {
-      return this.clientRepository.find({
-        order: { created_at: 'DESC' as any },
-        take: 500,
-      });
+    // ✅ admin/jefe ventas ve todo
+    if (role === 'administrador' || role === 'admin' || role === 'jefe ventas' || role === 'jefe_ventas') {
+      return this.clientRepository.find({ order: { created_at: 'DESC' as any }, take: 500 });
     }
 
-    // ✅ vendedor ve solo sus clientes
     return this.clientRepository.find({
       where: { seller_id: userId } as any,
       order: { created_at: 'DESC' as any },
