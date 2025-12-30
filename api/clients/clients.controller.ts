@@ -7,13 +7,11 @@ import { CreateClientDto } from './dto/create-client.dto';
 export class ClientsController {
   constructor(private readonly clientsService: ClientsService) { }
 
-  @UseGuards(JwtAuthGuard)
   @Get('mine')
   async mine(@Request() req) {
     return this.clientsService.findForUser(req.user.userId, req.user.role);
   }
 
-  @UseGuards(JwtAuthGuard)
   @Post()
   @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
   async create(@Body() dto: CreateClientDto, @Request() req) {
