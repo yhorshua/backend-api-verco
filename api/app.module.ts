@@ -34,6 +34,7 @@ import { ReportsModule } from './report/reports.module';
 import { RolesModule } from './rol/roles.module';
 import { WarehousesModule } from './warehouses/warehouses.module';
 import { ClientsModule } from './clients/clients.module';
+import { DocumentTypesModule } from './documentTypes/document-types.module';
 
 @Module({
   imports: [
@@ -86,6 +87,7 @@ import { ClientsModule } from './clients/clients.module';
     RolesModule,
     WarehousesModule,
     ClientsModule,
+    DocumentTypesModule,
   ],
   controllers: [AppController],
   providers: [AppService],
