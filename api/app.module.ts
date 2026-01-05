@@ -38,6 +38,7 @@ import { DocumentTypesModule } from './documentTypes/document-types.module';
 import { OrdersModule } from './orders/order.modules';
 import { StockReservation } from './database/entities/stock_reservations.entity';
 import { PackingModule } from './packing/packing.module';
+import { Escaneo } from './database/entities/escaneo.entity';
 
 @Module({
   imports: [
@@ -78,6 +79,7 @@ import { PackingModule } from './packing/packing.module';
         SalePayment,
         WarehouseSaleSequence,
         StockReservation,
+        Escaneo,
       ],
     }),
 
