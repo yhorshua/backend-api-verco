@@ -3,12 +3,14 @@ import {
   PrimaryGeneratedColumn,
   Column,
   ManyToOne,
+  OneToMany, // <- agregar
   JoinColumn,
 } from 'typeorm';
 
 import { Client } from './client.entity';
 import { User } from './user.entity';
 import { OrderStatus } from './order-status.entity';
+import { OrderDetail } from './order-details.entity'; // <- agregar
 
 @Entity('Orders')
 export class Order {
@@ -72,4 +74,8 @@ export class Order {
 
   @Column({ type: 'int' })
   warehouse_id: number;
+
+  // 🔹 RELACIÓN CON DETALLES
+  @OneToMany(() => OrderDetail, (detail) => detail.order)
+  details: OrderDetail[];
 }

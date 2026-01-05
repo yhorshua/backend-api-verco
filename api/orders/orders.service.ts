@@ -210,58 +210,94 @@ export class OrdersService {
   }
 
   async getOrder(id: number) {
-    const order = await this.orderRepo.findOne({ where: { id } });
+    const order = await this.orderRepo.findOne({
+      where: { id },
+      relations: ['user', 'client'],
+    });
     if (!order) throw new NotFoundException('Pedido no encontrado');
 
     const details = await this.orderDetailRepo.find({
       where: { order_id: id } as any,
+      relations: ['product'],
     });
 
-    return { order, details };
-  }
+    // Mapear totales
+    const totalUnidades = details.reduce((acc, d) => acc + d.quantity, 0);
+    const totalPrecio = details.reduce(
+      (acc, d) => acc + d.quantity * Number(d.unit_price),
+      0
+    );
 
+    return { order, details, totalUnidades, totalPrecio };
+  }
 
   async listOrdersByUserAndRole(dto: ListOrdersAdvancedDto) {
-  const qb = this.orderRepo
-    .createQueryBuilder('o')
-    .leftJoinAndSelect('o.user', 'u')
-    .leftJoinAndSelect('o.client', 'c')
-    .orderBy('o.request_date', 'DESC');
+    const qb = this.orderRepo
+      .createQueryBuilder('o')
+      .leftJoinAndSelect('o.user', 'u')
+      .leftJoinAndSelect('o.client', 'c')
+      .leftJoinAndSelect('o.details', 'd')
+      .leftJoinAndSelect('d.product', 'p')
+      .orderBy('o.request_date', 'DESC');
 
-  const role = dto.role?.toUpperCase();
+    const role = dto.role?.toUpperCase();
 
-  /* ===============================
-     FILTRO POR ROL
-  =============================== */
-  if (role === 'VENDEDOR') {
-    qb.andWhere('o.user_id = :userId', { userId: dto.user_id });
+    // Filtro por vendedor
+    if (role === 'VENDEDOR') {
+      qb.andWhere('o.user_id = :userId', { userId: dto.user_id });
+    }
+
+    // Filtros avanzados
+    if (dto.client_id) qb.andWhere('o.client_id = :client', { client: dto.client_id });
+    if (dto.seller_id) qb.andWhere('o.user_id = :seller', { seller: dto.seller_id });
+    if (dto.status) qb.andWhere('o.order_status_id = :status', { status: dto.status });
+    if (dto.date_from) qb.andWhere('o.request_date >= :from', { from: dto.date_from });
+    if (dto.date_to) qb.andWhere('o.request_date <= :to', { to: dto.date_to });
+
+    const orders = await qb.getMany();
+
+    // Mapear los datos para frontend
+    return orders.map((o) => {
+      const totalUnidades = o.details?.reduce((acc, d) => acc + d.quantity, 0) || 0;
+      const totalPrecio = o.details?.reduce(
+        (acc, d) => acc + d.quantity * Number(d.unit_price),
+        0
+      ) || 0;
+
+      const items = o.details?.map((d) => ({
+        codigo: d.product?.article_code ?? '',
+        descripcion: d.product?.article_description ?? '',
+        serie: d.product?.series ?? '',
+        precio: Number(d.unit_price),
+        total: d.quantity,
+        cantidades: { [d.size ?? 0]: d.quantity },
+      })) || [];
+
+      return {
+        id: String(o.id),
+        cliente: {
+          codigo: o.client?.id ?? '',
+          nombre: o.client?.business_name ?? '',
+          ruc: o.client?.document_number ?? '',
+          direccion: o.client?.address ?? '',
+        },
+        vendedor: o.user?.full_name ?? '',
+        fechaRegistro: o.request_date?.toISOString().split('T')[0] ?? '',
+        estado: o.order_status_id === 1
+          ? 'Pendiente'
+          : o.order_status_id === 2
+            ? 'Aprobado'
+            : o.order_status_id === 3
+              ? 'Rechazado'
+              : o.order_status_id === 4
+                ? 'Alistado'
+                : 'Facturado',
+        totalUnidades,
+        totalPrecio,
+        items,
+      };
+    });
   }
-
-  /* ===============================
-     FILTROS AVANZADOS
-     (solo jefe/admin deberían enviar)
-  =============================== */
-  if (dto.client_id) {
-    qb.andWhere('o.client_id = :client', { client: dto.client_id });
-  }
-
-  if (dto.seller_id) {
-    qb.andWhere('o.user_id = :seller', { seller: dto.seller_id });
-  }
-
-  if (dto.status) {
-    qb.andWhere('o.order_status_id = :status', { status: dto.status });
-  }
-
-  if (dto.date_from) {
-    qb.andWhere('o.request_date >= :from', { from: dto.date_from });
-  }
-
-  if (dto.date_to) {
-    qb.andWhere('o.request_date <= :to', { to: dto.date_to });
-  }
-
-  return qb.getMany();
 }
 
-}
+
