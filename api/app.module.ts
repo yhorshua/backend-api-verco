@@ -37,6 +37,7 @@ import { ClientsModule } from './clients/clients.module';
 import { DocumentTypesModule } from './documentTypes/document-types.module';
 import { OrdersModule } from './orders/order.modules';
 import { StockReservation } from './database/entities/stock_reservations.entity';
+import { PackingModule } from './packing/packing.module';
 
 @Module({
   imports: [
@@ -92,6 +93,7 @@ import { StockReservation } from './database/entities/stock_reservations.entity'
     ClientsModule,
     DocumentTypesModule,
     OrdersModule,
+    PackingModule,
   ],
   controllers: [AppController],
   providers: [AppService],
