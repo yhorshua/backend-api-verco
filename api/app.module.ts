@@ -36,6 +36,7 @@ import { WarehousesModule } from './warehouses/warehouses.module';
 import { ClientsModule } from './clients/clients.module';
 import { DocumentTypesModule } from './documentTypes/document-types.module';
 import { OrdersModule } from './orders/order.modules';
+import { StockReservation } from './database/entities/stock_reservations.entity';
 
 @Module({
   imports: [
@@ -75,6 +76,7 @@ import { OrdersModule } from './orders/order.modules';
         CashRegisterSession,
         SalePayment,
         WarehouseSaleSequence,
+        StockReservation,
       ],
     }),
 
