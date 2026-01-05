@@ -16,6 +16,7 @@ import { InventoryMovement } from '../database/entities/inventory-movements.enti
 import { Product } from '../database/entities/product.entity';
 import { StockReservation } from '../database/entities/stock_reservations.entity';
 import { StockReservationStatus } from '../database/entities/stock-reservation-status.enum';
+import { ListOrdersAdvancedDto } from './dto/list-orders-advanced.dto';
 
 
 @Injectable()
@@ -218,4 +219,49 @@ export class OrdersService {
 
     return { order, details };
   }
+
+
+  async listOrdersByUserAndRole(dto: ListOrdersAdvancedDto) {
+  const qb = this.orderRepo
+    .createQueryBuilder('o')
+    .leftJoinAndSelect('o.user', 'u')
+    .leftJoinAndSelect('o.client', 'c')
+    .orderBy('o.request_date', 'DESC');
+
+  const role = dto.role?.toUpperCase();
+
+  /* ===============================
+     FILTRO POR ROL
+  =============================== */
+  if (role === 'VENDEDOR') {
+    qb.andWhere('o.user_id = :userId', { userId: dto.user_id });
+  }
+
+  /* ===============================
+     FILTROS AVANZADOS
+     (solo jefe/admin deberían enviar)
+  =============================== */
+  if (dto.client_id) {
+    qb.andWhere('o.client_id = :client', { client: dto.client_id });
+  }
+
+  if (dto.seller_id) {
+    qb.andWhere('o.user_id = :seller', { seller: dto.seller_id });
+  }
+
+  if (dto.status) {
+    qb.andWhere('o.order_status_id = :status', { status: dto.status });
+  }
+
+  if (dto.date_from) {
+    qb.andWhere('o.request_date >= :from', { from: dto.date_from });
+  }
+
+  if (dto.date_to) {
+    qb.andWhere('o.request_date <= :to', { to: dto.date_to });
+  }
+
+  return qb.getMany();
+}
+
 }

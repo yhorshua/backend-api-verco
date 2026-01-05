@@ -4,14 +4,20 @@ import { CreateOrderDto } from './dto/CreateOrderDto';
 import { ApproveOrderDto } from './dto/approve-order.dto';
 import { RejectOrderDto } from './dto/reject-order.dto';
 import { ListOrdersDto } from './dto/list-orders.dto';
+import { ListOrdersAdvancedDto } from './dto/list-orders-advanced.dto';
 
 @Controller('orders')
 export class OrdersController {
-  constructor(private readonly service: OrdersService) {}
+  constructor(private readonly service: OrdersService) { }
 
   @Post()
   create(@Body() dto: CreateOrderDto) {
     return this.service.createOrderAndReserveStock(dto);
+  }
+
+  @Get('by-role')
+  getByRole(@Query() q: ListOrdersAdvancedDto) {
+    return this.service.listOrdersByUserAndRole(q);
   }
 
   @Get()
