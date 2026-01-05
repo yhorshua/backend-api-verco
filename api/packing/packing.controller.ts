@@ -7,6 +7,11 @@ import { ClosePackingDto } from './dto/close-packing.dto';
 export class PackingController {
   constructor(private readonly service: PackingService) {}
 
+   @Get('scan-status/:orderId')
+  async getScanStatus(@Param('orderId') orderId: string) {
+    return this.service.getScanStatus(Number(orderId));
+  }
+
   @Get(':orderId')
   getPacking(@Param('orderId') orderId: string) {
     return this.service.getPacking(Number(orderId));

@@ -148,4 +148,41 @@ export class PackingService {
 
     return { ok: true, message: 'Packing cerrado y completo' };
   }
+
+  async getScanStatus(orderId: number) {
+    const orderDetails = await this.orderDetailRepo.find({ where: { order_id: orderId } });
+
+    // Si no existen detalles en el pedido, se lanza una excepción
+    if (!orderDetails.length) {
+      throw new BadRequestException('Pedido sin detalles');
+    }
+
+    // Mapeamos los escaneos registrados
+    const escaneos = await this.escaneoRepo.find({ where: { id_pedido: orderId } });
+
+    const scanMap = new Map<string, number>();
+    escaneos.forEach((escaneo) => {
+      const key = `${escaneo.codigo_producto}|${escaneo.talla}`;
+      scanMap.set(key, (scanMap.get(key) || 0) + escaneo.cantidad);
+    });
+
+    // Comprobamos la cantidad escaneada y la cantidad solicitada para cada talla del pedido
+    const status = orderDetails.map((detail) => {
+      const key = `${detail.product_id}|${detail.size}`;
+      const escaneado = scanMap.get(key) || 0;
+      const solicitado = detail.quantity;
+
+      return {
+        codigo: detail.product_id,
+        talla: detail.size,
+        escaneado,
+        solicitado,
+        completo: escaneado >= solicitado,
+      };
+    });
+
+    return status;
+  }
 }
+
+ 
