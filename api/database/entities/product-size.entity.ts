@@ -7,19 +7,16 @@ export class ProductSize {
   @PrimaryGeneratedColumn()
   id: number;
 
-  @Column()
-  product_id: number;
-
-  @ManyToOne(() => Product, product => product.sizes, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'product_id' })
+  @ManyToOne(() => Product, (product) => product.sizes, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'product_id' })  // TypeORM manejará la relación automáticamente
   product: Product;
 
   @Column()
   size: string;
 
   @Column()
-  lot_pair: number; // pares por lote (si aplica a zapatillas)
+  lot_pair: number;  // Pares por lote (si aplica)
 
-  @OneToMany(() => Stock, stock => stock.productSize)
+  @OneToMany(() => Stock, (stock) => stock.productSize)
   stock: Stock[];
 }

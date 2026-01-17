@@ -53,13 +53,13 @@ export class Product {
   @Column({ type: 'datetime', default: () => 'GETDATE()' })
   created_at: Date;
 
-  @OneToMany(() => ProductSize, size => size.product)
-  sizes: ProductSize[];
+  @OneToMany(() => ProductSize, (size) => size.product)
+  sizes: ProductSize[];  // Relación con las tallas del producto
 
   @ManyToOne(() => Series)
   @JoinColumn({ name: 'article_series', referencedColumnName: 'code' })
   series: Series;
 
-  @OneToMany(() => Stock, stock => stock.product)
+  @OneToMany(() => Stock, (stock) => stock.product)
   stock: Stock[];
 }

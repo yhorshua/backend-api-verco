@@ -6,12 +6,18 @@ import { UpdateProductDto } from './dto/update-product.dto';
 @Controller('products')
 export class ProductsController {
   constructor(private readonly productsService: ProductsService) { }
+ @Get('sizes')
+  async getProductsWithSizes() {
+    return await this.productsService.findProductsWithSizes();
+  }
+
 
   @Get('warehouse/:warehouseId')
   findByWarehouse(@Param('warehouseId') warehouseId: string) {
     return this.productsService.findByWarehouse(+warehouseId);
   }
 
+  
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.productsService.findOne(+id);
@@ -22,9 +28,9 @@ export class ProductsController {
     return this.productsService.findAll();
   }
 
-  @Post()
-  create(@Body() createProductDto: CreateProductDto) {
-    return this.productsService.create(createProductDto);
+  @Post('many')
+  createMany(@Body() createProductDtos: CreateProductDto[]) {
+    return this.productsService.createMany(createProductDtos);  // Llamada al servicio para crear múltiples productos
   }
 
   @Patch(':id')
@@ -36,4 +42,6 @@ export class ProductsController {
   disable(@Param('id') id: string) {
     return this.productsService.disable(+id);
   }
+
+
 }
