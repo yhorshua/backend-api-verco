@@ -6,10 +6,7 @@ import { UpdateProductDto } from './dto/update-product.dto';
 @Controller('products')
 export class ProductsController {
   constructor(private readonly productsService: ProductsService) { }
- @Get('sizes')
-  async getProductsWithSizes() {
-    return await this.productsService.findProductsWithSizes();
-  }
+
 
 
   @Get('warehouse/:warehouseId')
@@ -17,6 +14,10 @@ export class ProductsController {
     return this.productsService.findByWarehouse(+warehouseId);
   }
 
+   @Get('sizes')
+  async getProductsWithSizes() {
+    return await this.productsService.findProductsWithSizes();
+  }
   
   @Get(':id')
   findOne(@Param('id') id: string) {
