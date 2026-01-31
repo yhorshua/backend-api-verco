@@ -12,6 +12,9 @@ import { StockService } from './stock.service';
 import { SalePayment } from '../database/entities/sale-payments.entity';
 import { CashRegisterSession } from '../database/entities/cash-register-session.entity';
 import { CashMovement } from '../database/entities/cash-movement.entity';
+import { ProductSize } from 'api/database/entities/product-size.entity';
+import { ProductsModule } from './products.module';
+import { Product } from 'api/database/entities/product.entity';
 
 @Module({
   imports: [
@@ -24,7 +27,10 @@ import { CashMovement } from '../database/entities/cash-movement.entity';
       SalePayment,
       CashRegisterSession,
       CashMovement,
+      ProductSize,
+      Product,
     ]),
+    ProductsModule,
   ],
   controllers: [StockController],
   providers: [StockService],

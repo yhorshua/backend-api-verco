@@ -7,6 +7,7 @@ import { Stock } from '../database/entities/stock.entity';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { Series } from 'api/database/entities/series.entity';
+import { Category } from 'api/database/entities/categories.entity';
 
 @Injectable()
 export class ProductsService {
@@ -19,6 +20,8 @@ export class ProductsService {
     private readonly stockRepo: Repository<Stock>,
     @InjectRepository(Series)
     private readonly seriesRepo: Repository<Series>,    
+    @InjectRepository(Category)
+    private readonly categoryRepo: Repository<Category>,
   ) { }
 
 
@@ -27,6 +30,12 @@ async createMany(createProductDtos: CreateProductDto[]): Promise<Product[]> {
 
     return this.productRepo.manager.transaction(async (manager: EntityManager) => {
       for (const createProductDto of createProductDtos) {
+
+         const category = await manager.findOne(Category, { where: { id: createProductDto.categoryId } });
+
+      if (!category) {
+        throw new NotFoundException(`Categoría ${createProductDto.categoryId} no encontrada`);
+      }
         // 1) Crear el producto
         const product = manager.create(Product, {
           article_code: createProductDto.article_code,
@@ -38,7 +47,7 @@ async createMany(createProductDtos: CreateProductDto[]): Promise<Product[]> {
           selling_price: createProductDto.selling_price,
           brand_name: createProductDto.brand_name,
           model_code: createProductDto.model_code,
-          category: createProductDto.category,
+          category,
           material_type: createProductDto.material_type,
           color: createProductDto.color,
           stock_minimum: createProductDto.stock_minimum,

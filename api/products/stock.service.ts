@@ -13,6 +13,8 @@ import { CashRegisterSession } from '../database/entities/cash-register-session.
 import { CashMovement } from '../database/entities/cash-movement.entity';
 
 import { CreateSaleDto, PaymentMethod } from './dto/create-sale.dto';
+import { ProductSize } from 'api/database/entities/product-size.entity';
+import { Product } from 'api/database/entities/product.entity';
 
 @Injectable()
 export class StockService {
@@ -32,8 +34,14 @@ export class StockService {
     @InjectRepository(WarehouseSaleSequence)
     private readonly seqRepo: Repository<WarehouseSaleSequence>,
 
+    @InjectRepository(ProductSize)
+    private readonly productSizeRepo: Repository<ProductSize>,
+
+    @InjectRepository(Product)
+    private readonly productRepo: Repository<Product>,
+
     private readonly dataSource: DataSource,
-  ) {}
+  ) { }
 
   /**
    * ✅ Registrar venta completa:
@@ -513,4 +521,59 @@ export class StockService {
       saldo_total: rows.reduce((acc, s) => acc + Number(s.quantity || 0), 0),
     };
   }
+
+  async registerStockForMultipleItems(
+    warehouseId: number,
+    products: { productId: number; size: string; quantity: number }[]
+  ): Promise<Stock[]> {
+    const updatedStocks: Stock[] = [];  // Para almacenar los registros de stock actualizados o creados
+
+    // Iterar sobre cada producto y talla
+    for (const item of products) {
+      const { productId, size, quantity } = item;
+
+      // Verificar si el producto existe
+      const product = await this.productRepo.findOne({
+        where: { id: productId },
+      });
+
+      if (!product) {
+        throw new NotFoundException(`Producto con ID ${productId} no encontrado`);
+      }
+
+      // Verificar si la talla existe para el producto
+      const productSize = await this.productSizeRepo.findOne({
+        where: { product: { id: productId }, size: size },  // Referencia al Product
+      });
+
+      if (!productSize) {
+        throw new NotFoundException(`Talla ${size} no encontrada para el producto`);
+      }
+
+      // Verificar si ya existe stock para ese producto y talla en el almacén
+      let stock = await this.stockRepo.findOne({
+        where: { warehouse_id: warehouseId, product_id: productId, product_size_id: productSize.id },
+      });
+
+      if (stock) {
+        // Si ya existe stock, sumamos la cantidad
+        stock.quantity += quantity;
+        const updatedStock = await this.stockRepo.save(stock); // Guardamos el stock actualizado
+        updatedStocks.push(updatedStock);  // Agregamos el stock actualizado al arreglo
+      } else {
+        // Si no existe stock, creamos uno nuevo
+        stock = this.stockRepo.create({
+          warehouse_id: warehouseId,
+          product_id: productId,
+          product_size_id: productSize.id,
+          quantity,
+        });
+        const newStock = await this.stockRepo.save(stock); // Guardamos el nuevo stock
+        updatedStocks.push(newStock);  // Agregamos el nuevo stock al arreglo
+      }
+    }
+
+    return updatedStocks;  // Retornamos el arreglo de stocks creados o actualizados
+  }
+
 }

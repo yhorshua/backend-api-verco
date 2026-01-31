@@ -9,12 +9,12 @@ export class CreateProductDto {
   selling_price: number;             // Precio de venta
   brand_name?: string;               // Nombre de la marca
   model_code?: string;               // Código del modelo
-  category?: string;                 // Categoría del producto
+  categoryId: number;
   material_type?: string;            // Tipo de material del producto
   color?: string;                    // Color del producto
   stock_minimum?: number;            // Stock mínimo para control
   product_image?: string;            // Imagen del producto
-  
+
   sizes: string[];                   // Lista de tallas disponibles (como 38, 39, 40, etc.)
   lot_pair?: number;                 // Pares por lote (solo si aplica, como en calzado)
 }

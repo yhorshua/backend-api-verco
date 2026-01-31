@@ -2,6 +2,7 @@ import { Entity, PrimaryGeneratedColumn, Column, OneToMany, ManyToOne, JoinColum
 import { ProductSize } from './product-size.entity';
 import { Series } from './series.entity';
 import { Stock } from './stock.entity';
+import { Category } from './categories.entity';
 
 @Entity('Products')
 export class Product {
@@ -32,8 +33,10 @@ export class Product {
   @Column({ nullable: true })
   model_code: string;
 
-  @Column({ nullable: true })
-  category: string;
+
+  @ManyToOne(() => Category, (category) => category.products)
+  @JoinColumn({ name: 'category_id' })
+  category: Category;
 
   @Column({ nullable: true })
   material_type: string;
@@ -54,7 +57,7 @@ export class Product {
   created_at: Date;
 
   @OneToMany(() => ProductSize, (size) => size.product)
-  sizes: ProductSize[];  // Relación con las tallas del producto
+  sizes: ProductSize[]; 
 
   @ManyToOne(() => Series)
   @JoinColumn({ name: 'article_series', referencedColumnName: 'code' })

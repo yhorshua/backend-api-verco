@@ -39,6 +39,8 @@ import { OrdersModule } from './orders/order.modules';
 import { StockReservation } from './database/entities/stock_reservations.entity';
 import { PackingModule } from './packing/packing.module';
 import { Escaneo } from './database/entities/escaneo.entity';
+import { CategoriesModule } from './categories/categories.module';
+import { Category } from './database/entities/categories.entity';
 
 @Module({
   imports: [
@@ -80,6 +82,7 @@ import { Escaneo } from './database/entities/escaneo.entity';
         WarehouseSaleSequence,
         StockReservation,
         Escaneo,
+        Category,
       ],
     }),
 
@@ -96,6 +99,7 @@ import { Escaneo } from './database/entities/escaneo.entity';
     DocumentTypesModule,
     OrdersModule,
     PackingModule,
+    CategoriesModule,
   ],
   controllers: [AppController],
   providers: [AppService],
