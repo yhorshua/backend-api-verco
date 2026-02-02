@@ -168,21 +168,21 @@ export class ProductsService {
   }
 
   // Método para consultar por código o descripción
-  async findByCodeOrDescription(query: string): Promise<any> {
-    // Realizar la búsqueda por código de artículo o descripción
+  async findByCode(query: string): Promise<any> {
+    // Realizar la búsqueda solo por código de artículo
     const product = await this.productRepo
       .createQueryBuilder('product')
       .leftJoinAndSelect('product.sizes', 'sizes')  // Unir las tallas
       .leftJoinAndSelect('product.series', 'series')  // Unir la serie
       .leftJoinAndSelect('product.category', 'category')  // Unir la categoría
-      .where('product.article_code = :query OR product.article_description LIKE :query', {
-        query: `%${query}%`,  // Búsqueda con LIKE para descripción
+      .where('UPPER(product.article_code) = :query', {
+        query: query.toUpperCase(),  // Búsqueda exacta por código de artículo
       })
       .getOne();
 
     if (!product) {
       throw new NotFoundException(
-        `Producto con código o descripción "${query}" no encontrado`,
+        `Producto con código "${query}" no encontrado`,
       );
     }
 

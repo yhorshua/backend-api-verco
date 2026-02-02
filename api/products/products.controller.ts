@@ -7,6 +7,14 @@ import { UpdateProductDto } from './dto/update-product.dto';
 export class ProductsController {
   constructor(private readonly productsService: ProductsService) { }
 
+  
+  // Endpoint para consultar por código de artículo o descripción
+  @Get('search')
+  async searchProduct(@Query('query') query: string) {
+    return await this.productsService.findByCode(query);
+  }
+
+
   @Get('filter')
   async getProducts(
     @Query('categoryId') categoryId: number | null = null,  // Categoria opcional
@@ -16,12 +24,6 @@ export class ProductsController {
     console.log('warehouseId:', warehouseId); // Verifica el valor de warehouseId
     const products = await this.productsService.findByCategoryAndWarehouse(categoryId, warehouseId);
     return products;
-  }
-
-  // Endpoint para consultar por código de artículo o descripción
-  @Get('search')
-  async searchProduct(@Query('query') query: string) {
-    return await this.productsService.findByCodeOrDescription(query);
   }
 
   @Get('sizes')
