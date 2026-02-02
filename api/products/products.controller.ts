@@ -10,7 +10,7 @@ export class ProductsController {
 
 
   @Get('warehouse/:warehouseId')
-  findByWarehouse(@Param('warehouseId') warehouseId: string) {
+  async findByWarehouse(@Param('warehouseId') warehouseId: string) {
     return this.productsService.findByWarehouse(+warehouseId);
   }
 

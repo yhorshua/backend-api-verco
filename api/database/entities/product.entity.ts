@@ -35,7 +35,7 @@ export class Product {
 
 
   @ManyToOne(() => Category, (category) => category.products)
-  @JoinColumn({ name: 'category_id' })
+  @JoinColumn({ name: 'category_id' }) // Especifica explícitamente el nombre de la columna de la clave foránea
   category: Category;
 
   @Column({ nullable: true })
@@ -57,7 +57,7 @@ export class Product {
   created_at: Date;
 
   @OneToMany(() => ProductSize, (size) => size.product)
-  sizes: ProductSize[]; 
+  sizes: ProductSize[];
 
   @ManyToOne(() => Series)
   @JoinColumn({ name: 'article_series', referencedColumnName: 'code' })

@@ -77,13 +77,13 @@ async createMany(createProductDtos: CreateProductDto[]): Promise<Product[]> {
   }
 
   async findAll(): Promise<Product[]> {
-    return await this.productRepo.find({ relations: ['sizes', 'series'] });
+    return await this.productRepo.find({ relations: ['sizes', 'series', 'category'] });
   }
 
   async findOne(id: number): Promise<Product> {
     const product = await this.productRepo.findOne({
       where: { id },
-      relations: ['sizes', 'series'],
+      relations: ['sizes', 'series', 'category'],
     });
     if (!product) throw new NotFoundException(`Producto con ID ${id} no encontrado`);
     return product;
@@ -112,6 +112,7 @@ async createMany(createProductDtos: CreateProductDto[]): Promise<Product[]> {
       .createQueryBuilder('product')
       .leftJoinAndSelect('product.sizes', 'sizes')
       .leftJoinAndSelect('product.series', 'series')
+      .leftJoinAndSelect('product.category','category')
       .leftJoinAndSelect('product.stock', 'stock')
       .leftJoinAndSelect('stock.productSize', 'stockSize') // ✅ AÑADE ESTO
       .where('stock.warehouse_id = :warehouseId', { warehouseId })
@@ -125,6 +126,7 @@ async findProductsWithSizes(): Promise<any[]> {
     .createQueryBuilder('product')
     .leftJoinAndSelect('product.sizes', 'sizes')
     .leftJoinAndSelect('product.series', 'series')
+    .leftJoinAndSelect('product.category','category')
     .leftJoinAndSelect('sizes.stock', 'stock')
     .where('product.id IS NOT NULL')  // Filtrar productos con id no nulo
     .andWhere('product.series.code IS NOT NULL')  // Filtrar productos sin serie válida
