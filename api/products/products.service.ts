@@ -167,5 +167,40 @@ export class ProductsService {
     });
   }
 
+  // Método para consultar por código o descripción
+  async findByCodeOrDescription(query: string): Promise<any> {
+    // Realizar la búsqueda por código de artículo o descripción
+    const product = await this.productRepo
+      .createQueryBuilder('product')
+      .leftJoinAndSelect('product.sizes', 'sizes')  // Unir las tallas
+      .leftJoinAndSelect('product.series', 'series')  // Unir la serie
+      .leftJoinAndSelect('product.category', 'category')  // Unir la categoría
+      .where('product.article_code = :query OR product.article_description LIKE :query', {
+        query: `%${query}%`,  // Búsqueda con LIKE para descripción
+      })
+      .getOne();
+
+    if (!product) {
+      throw new NotFoundException(
+        `Producto con código o descripción "${query}" no encontrado`,
+      );
+    }
+
+    // Retornar la información del producto con sus detalles
+    return {
+      product_id: product.id,
+      article_code: product.article_code,
+      article_description: product.article_description,
+      article_series: product.article_series,
+      material_type: product.material_type,
+      color: product.color,
+      stock_minimum: product.stock_minimum,
+      product_image: product.product_image,
+      price: product.unit_price,
+      category: product.category,
+      series: product.series,
+      sizes: product.sizes,
+    };
+  }
 
 }

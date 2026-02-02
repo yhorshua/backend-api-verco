@@ -18,6 +18,12 @@ export class ProductsController {
     return products;
   }
 
+  // Endpoint para consultar por código de artículo o descripción
+  @Get('search')
+  async searchProduct(@Query('query') query: string) {
+    return await this.productsService.findByCodeOrDescription(query);
+  }
+
   @Get('sizes')
   async getProductsWithSizes() {
     return await this.productsService.findProductsWithSizes();
