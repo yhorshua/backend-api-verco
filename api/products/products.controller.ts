@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, Query } from '@nestjs/common';
 import { ProductsService } from './products.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
@@ -7,22 +7,22 @@ import { UpdateProductDto } from './dto/update-product.dto';
 export class ProductsController {
   constructor(private readonly productsService: ProductsService) { }
 
-
-  @Get('category/:categoryId')
-  async getProductsByCategory(@Param('categoryId') categoryId: number) {
-    return this.productsService.findByCategory(categoryId);
+  @Get('filter')
+  async getProducts(
+    @Query('categoryId') categoryId: number | null = null,  // Categoria opcional
+    @Query('warehouseId') warehouseId: number       // Warehouse obligatorio
+  ) {
+    console.log('categoryId:', categoryId);  // Verifica el valor de categoryId
+    console.log('warehouseId:', warehouseId); // Verifica el valor de warehouseId
+    const products = await this.productsService.findByCategoryAndWarehouse(categoryId, warehouseId);
+    return products;
   }
 
-  @Get('warehouse/:warehouseId')
-  async findByWarehouse(@Param('warehouseId') warehouseId: string) {
-    return this.productsService.findByWarehouse(+warehouseId);
-  }
-
-   @Get('sizes')
+  @Get('sizes')
   async getProductsWithSizes() {
     return await this.productsService.findProductsWithSizes();
   }
-  
+
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.productsService.findOne(+id);
