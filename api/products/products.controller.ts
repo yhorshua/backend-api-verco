@@ -8,6 +8,10 @@ export class ProductsController {
   constructor(private readonly productsService: ProductsService) { }
 
 
+  @Get('category/:categoryId')
+  async getProductsByCategory(@Param('categoryId') categoryId: number) {
+    return this.productsService.findByCategory(categoryId);
+  }
 
   @Get('warehouse/:warehouseId')
   async findByWarehouse(@Param('warehouseId') warehouseId: string) {

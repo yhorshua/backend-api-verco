@@ -158,6 +158,17 @@ async findProductsWithSizes(): Promise<any[]> {
   });
 }
 
+async findByCategory(categoryId: number): Promise<Product[]> {
+  return await this.productRepo
+    .createQueryBuilder('product')
+    .leftJoinAndSelect('product.sizes', 'sizes')
+    .leftJoinAndSelect('product.series', 'series')
+    .leftJoinAndSelect('product.category', 'category')
+    .where('product.category_id = :categoryId', { categoryId }) // Filtrar por category_id
+    .andWhere('product.status = 1') // Filtrar productos activos
+    .getMany();
+}
+
 
 
 }
