@@ -9,7 +9,7 @@ export class StockController {
 
   @Post('register-multiple')
   async registerStockForMultipleItems(
-    @Body() stockDto: { warehouseId: number; products: { productId: number; size: string; quantity: number }[] }
+    @Body() stockDto: { warehouseId: number; products: {  productId: number; productSizeId: number; quantity: number }[] }
   ) {
     const { warehouseId, products } = stockDto;
     return await this.stockService.registerStockForMultipleItems(warehouseId, products);
