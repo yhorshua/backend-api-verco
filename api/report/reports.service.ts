@@ -277,12 +277,16 @@ export class ReportsService {
   async getCashClosureReport(dto: SalesReportQueryDto) {
     const { start, end } = this.buildRange(dto);
 
+    const warehouse = await this.warehouseRepo.findOne({ where: { id: dto.warehouseId } });
+    if (!warehouse) throw new BadRequestException(`warehouseId ${dto.warehouseId} not found`);
+
     // Obtener las ventas en el rango de fechas
     const qb = this.saleRepo
       .createQueryBuilder('s')
       .leftJoinAndSelect('s.warehouse', 'w')
       .leftJoinAndSelect('s.user', 'u')
-      .where('s.sale_date BETWEEN :start AND :end', { start, end })
+      .where('s.warehouse_id = :warehouseId', { warehouseId: dto.warehouseId })
+      .andWhere('s.sale_date BETWEEN :start AND :end', { start, end })
       .orderBy('s.sale_date', 'DESC');
 
     const sales = await qb.getMany();
@@ -292,7 +296,7 @@ export class ReportsService {
       return {
         meta: {
           warehouse_id: dto.warehouseId,
-          warehouse_name: null,
+          warehouse_name: warehouse.warehouse_name ?? null,
           user_id: null,
           user_name: null,
           start,
@@ -370,7 +374,7 @@ export class ReportsService {
         sale_code: s.sale_code,
         sale_date: s.sale_date,
         warehouse_id: s.warehouse_id,
-        warehouse_name: s.warehouse?.warehouse_name ?? null,
+        warehouse_name: s.warehouse?.warehouse_name ?? warehouse.warehouse_name ?? null,
         user_id: s.user_id,
         user_name: s.user?.full_name ?? '',
         total_amount: String(s.total_amount),
@@ -383,7 +387,7 @@ export class ReportsService {
     return {
       meta: {
         warehouse_id: dto.warehouseId,
-        warehouse_name: null,
+        warehouse_name: warehouse.warehouse_name ?? null,
         user_id: null,
         user_name: null,
         start,
@@ -397,12 +401,16 @@ export class ReportsService {
   async getInventoryIngressReport(dto: SalesReportQueryDto) {
     const { start, end } = this.buildRange(dto);
 
+    const warehouse = await this.warehouseRepo.findOne({ where: { id: dto.warehouseId } });
+    if (!warehouse) throw new BadRequestException(`warehouseId ${dto.warehouseId} not found`);
+
     const qb = this.saleDetailRepo
       .createQueryBuilder('d')
       .leftJoinAndSelect('d.product', 'p')
       .leftJoinAndSelect('d.productSize', 'ps')
       .leftJoin('p.warehouse', 'w')
       .where('d.created_at BETWEEN :start AND :end', { start, end })
+      .andWhere('w.id = :warehouseId', { warehouseId: dto.warehouseId }) // Filtrar por warehouseId
       .orderBy('d.created_at', 'DESC');
 
     const details = await qb.getMany();
@@ -434,14 +442,16 @@ export class ReportsService {
 
   async getWeeklyProfitReport(dto: SalesReportQueryDto) {
     const { start, end } = this.buildRange(dto);
+    const warehouse = await this.warehouseRepo.findOne({ where: { id: dto.warehouseId } });
+    if (!warehouse) throw new BadRequestException(`warehouseId ${dto.warehouseId} not found`);
 
     // Obtener las ventas en el rango de fechas
     const qb = this.saleRepo
       .createQueryBuilder('s')
       .leftJoinAndSelect('s.warehouse', 'w')
       .leftJoinAndSelect('s.user', 'u')
-      .where('s.sale_date BETWEEN :start AND :end', { start, end })
-      .orderBy('s.sale_date', 'DESC');
+      .where('s.warehouse_id = :warehouseId', { warehouseId: dto.warehouseId })
+      .andWhere('s.sale_date BETWEEN :start AND :end', { start, end }).orderBy('s.sale_date', 'DESC');
 
     const sales = await qb.getMany();
     const saleIds = sales.map((x) => x.id);
@@ -489,18 +499,20 @@ export class ReportsService {
   }
 
   public async getOperatingExpenses(start: Date, end: Date): Promise<number> {
-  const result = await this.cashMovementRepo
-    .createQueryBuilder('cm')
-    .select('SUM(cm.amount)', 'total')  // Realizamos la suma de la columna 'amount'
-    .where('cm.type = :type', { type: 'EXPENSE' })  // Filtramos por tipo de movimiento (gasto)
-    .andWhere('cm.created_at BETWEEN :start AND :end', { start, end })  // Rango de fechas
-    .getRawOne();  // Obtenemos el resultado de la suma
+    const result = await this.cashMovementRepo
+      .createQueryBuilder('cm')
+      .select('SUM(cm.amount)', 'total')  // Realizamos la suma de la columna 'amount'
+      .where('cm.type = :type', { type: 'EXPENSE' })  // Filtramos por tipo de movimiento (gasto)
+      .andWhere('cm.created_at BETWEEN :start AND :end', { start, end })  // Rango de fechas
+      .getRawOne();  // Obtenemos el resultado de la suma
 
-  // Si result.total es null, lo convertimos a 0
-  return result?.total ? parseFloat(result.total) : 0;
-}
+    // Si result.total es null, lo convertimos a 0
+    return result?.total ? parseFloat(result.total) : 0;
+  }
   async getSellerCommissionReport(dto: SalesReportQueryDto) {
     const { start, end } = this.buildRange(dto);
+    const warehouse = await this.warehouseRepo.findOne({ where: { id: dto.warehouseId } });
+    if (!warehouse) throw new BadRequestException(`warehouseId ${dto.warehouseId} not found`);
 
     // Obtener ventas de zapatillas en el rango de fechas
     const qb = this.saleDetailRepo
@@ -509,7 +521,9 @@ export class ReportsService {
       .leftJoinAndSelect('p.category', 'c')
       .leftJoinAndSelect('d.sale', 's')
       .where('d.sale_date BETWEEN :start AND :end', { start, end })
-      .andWhere('c.name = :category', { category: 'Zapatillas' });
+      .andWhere('c.name = :category', { category: 'Zapatillas' })
+      .andWhere('s.warehouse_id = :warehouseId', { warehouseId: dto.warehouseId });  // Filtrar por warehouseId
+
 
     const salesDetails = await qb.getMany();
 
