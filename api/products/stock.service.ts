@@ -171,7 +171,7 @@ export class StockService {
         );
       }
 
-      const unit_price = Number(stock.product.unit_price);
+      const unit_price = Number(item.unit_price);
       total_amount += Number(item.quantity) * unit_price;
 
       validated.push({ item, unit_price });

@@ -34,6 +34,9 @@ class CreateSaleItemDto {
 
   @IsString()
   unit_of_measure: string;
+
+   @IsNumber()
+  unit_price: number;
 }
 
 /**
