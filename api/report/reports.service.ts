@@ -398,6 +398,7 @@ export class ReportsService {
       sales: reportSales,
     };
   }
+
   async getInventoryIngressReport(dto: SalesReportQueryDto) {
     const { start, end } = this.buildRange(dto);
 
@@ -509,6 +510,8 @@ export class ReportsService {
     // Si result.total es null, lo convertimos a 0
     return result?.total ? parseFloat(result.total) : 0;
   }
+
+
   async getSellerCommissionReport(dto: SalesReportQueryDto) {
     const { start, end } = this.buildRange(dto);
     const warehouse = await this.warehouseRepo.findOne({ where: { id: dto.warehouseId } });
@@ -520,7 +523,7 @@ export class ReportsService {
       .leftJoinAndSelect('d.product', 'p')
       .leftJoinAndSelect('p.category', 'c')
       .leftJoinAndSelect('d.sale', 's')
-      .where('d.sale_date BETWEEN :start AND :end', { start, end })
+      .where('s.sale_date BETWEEN :start AND :end', { start, end })
       .andWhere('c.name = :category', { category: 'Zapatillas' })
       .andWhere('s.warehouse_id = :warehouseId', { warehouseId: dto.warehouseId });  // Filtrar por warehouseId
 
