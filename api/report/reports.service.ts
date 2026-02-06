@@ -9,6 +9,7 @@ import { Warehouse } from '../database/entities/warehouse.entity';
 import { User } from '../database/entities/user.entity';
 
 import { SalesReportQueryDto } from './dto/sales-report.query.dto';
+import { CashMovement } from 'api/database/entities/cash-movement.entity';
 
 type ReportRow = {
   sale_id: number;
@@ -55,9 +56,10 @@ export class ReportsService {
     @InjectRepository(Sale) private readonly saleRepo: Repository<Sale>,
     @InjectRepository(SaleDetail) private readonly saleDetailRepo: Repository<SaleDetail>,
     @InjectRepository(SalePayment) private readonly salePaymentRepo: Repository<SalePayment>,
+    @InjectRepository(CashMovement) private readonly cashMovementRepo: Repository<CashMovement>, // Asumimos que CashMovement contiene los gastos operativos
     @InjectRepository(Warehouse) private readonly warehouseRepo: Repository<Warehouse>,
     @InjectRepository(User) private readonly userRepo: Repository<User>,
-  ) {}
+  ) { }
 
   private buildRange(dto: SalesReportQueryDto): { start: Date; end: Date } {
     if (dto.type === 'DAY') {
@@ -271,4 +273,275 @@ export class ReportsService {
       summary_by_payment_method: Array.from(summaryByPaymentMap.values()).sort((a, b) => b.total_amount - a.total_amount),
     };
   }
+
+  async getCashClosureReport(dto: SalesReportQueryDto) {
+    const { start, end } = this.buildRange(dto);
+
+    // Obtener las ventas en el rango de fechas
+    const qb = this.saleRepo
+      .createQueryBuilder('s')
+      .leftJoinAndSelect('s.warehouse', 'w')
+      .leftJoinAndSelect('s.user', 'u')
+      .where('s.sale_date BETWEEN :start AND :end', { start, end })
+      .orderBy('s.sale_date', 'DESC');
+
+    const sales = await qb.getMany();
+    const saleIds = sales.map((x) => x.id);
+
+    if (saleIds.length === 0) {
+      return {
+        meta: {
+          warehouse_id: dto.warehouseId,
+          warehouse_name: null,
+          user_id: null,
+          user_name: null,
+          start,
+          end,
+          total_sales: 0,
+          total_amount: 0,
+        },
+        sales: [],
+      };
+    }
+
+    // Detalles de las ventas
+    const details = await this.saleDetailRepo
+      .createQueryBuilder('d')
+      .leftJoinAndSelect('d.product', 'p')
+      .where('d.sale_id IN (:...saleIds)', { saleIds })
+      .getMany();
+
+    // Pagos realizados
+    const payments = await this.salePaymentRepo
+      .createQueryBuilder('sp')
+      .where('sp.sale_id IN (:...saleIds)', { saleIds })
+      .getMany();
+
+    // Agrupar los detalles de ventas por sale_id
+    const detailsBySale = new Map<number, SaleDetail[]>();
+    for (const d of details) {
+      const arr = detailsBySale.get(d.sale_id) ?? [];
+      arr.push(d);
+      detailsBySale.set(d.sale_id, arr);
+    }
+
+    // Agrupar los pagos por sale_id
+    const paymentsBySale = new Map<number, SalePayment[]>();
+    for (const p of payments) {
+      const arr = paymentsBySale.get(p.sale_id) ?? [];
+      arr.push(p);
+      paymentsBySale.set(p.sale_id, arr);
+    }
+
+    // Formato final
+    const reportSales = sales.map((s) => {
+      const saleDetails = (detailsBySale.get(s.id) ?? []).map((d) => {
+        const qty: any = d.quantity as any;
+        const up: any = d.unit_price as any;
+        const lineTotal =
+          typeof qty === 'string' || typeof up === 'string'
+            ? (Number(qty) * Number(up)).toFixed(2)
+            : (qty * up).toFixed(2);
+
+        return {
+          id: d.id,
+          product_id: d.product_id,
+          article_code: d.product?.article_code ?? '',
+          article_description: d.product?.article_description ?? '',
+          size: d.productSize?.size ?? null,
+          quantity: String(d.quantity),
+          unit_price: String(d.unit_price),
+          line_total: String(lineTotal),
+        };
+      });
+
+      const salePayments = (paymentsBySale.get(s.id) ?? []).map((p) => ({
+        id: p.id,
+        method: p.method,
+        amount: String(p.amount),
+        operation_number: p.operation_number ?? null,
+        cash_received: p.cash_received === null ? null : String(p.cash_received),
+        cash_change: p.cash_change === null ? null : String(p.cash_change),
+        notes: p.notes ?? null,
+      }));
+
+      return {
+        sale_id: s.id,
+        sale_code: s.sale_code,
+        sale_date: s.sale_date,
+        warehouse_id: s.warehouse_id,
+        warehouse_name: s.warehouse?.warehouse_name ?? null,
+        user_id: s.user_id,
+        user_name: s.user?.full_name ?? '',
+        total_amount: String(s.total_amount),
+        payment_method: s.payment_method ?? null,
+        details: saleDetails,
+        payments: salePayments,
+      };
+    });
+
+    return {
+      meta: {
+        warehouse_id: dto.warehouseId,
+        warehouse_name: null,
+        user_id: null,
+        user_name: null,
+        start,
+        end,
+        total_sales: reportSales.length,
+        total_amount: reportSales.reduce((sum, s) => sum + parseFloat(s.total_amount), 0),
+      },
+      sales: reportSales,
+    };
+  }
+  async getInventoryIngressReport(dto: SalesReportQueryDto) {
+    const { start, end } = this.buildRange(dto);
+
+    const qb = this.saleDetailRepo
+      .createQueryBuilder('d')
+      .leftJoinAndSelect('d.product', 'p')
+      .leftJoinAndSelect('d.productSize', 'ps')
+      .leftJoin('p.warehouse', 'w')
+      .where('d.created_at BETWEEN :start AND :end', { start, end })
+      .orderBy('d.created_at', 'DESC');
+
+    const details = await qb.getMany();
+
+    const reportDetails = details.map((d) => {
+      return {
+        product_id: d.product_id,
+        article_code: d.product?.article_code ?? '',
+        article_description: d.product?.article_description ?? '',
+        size: d.productSize?.size ?? null,
+        quantity: String(d.quantity),
+        unit_price: String(d.unit_price),
+        total: (d.quantity * d.unit_price).toFixed(2),
+      };
+    });
+
+    return {
+      meta: {
+        warehouse_id: dto.warehouseId,
+        warehouse_name: null,
+        start,
+        end,
+        total_entries: reportDetails.length,
+      },
+      entries: reportDetails,
+    };
+  }
+
+
+  async getWeeklyProfitReport(dto: SalesReportQueryDto) {
+    const { start, end } = this.buildRange(dto);
+
+    // Obtener las ventas en el rango de fechas
+    const qb = this.saleRepo
+      .createQueryBuilder('s')
+      .leftJoinAndSelect('s.warehouse', 'w')
+      .leftJoinAndSelect('s.user', 'u')
+      .where('s.sale_date BETWEEN :start AND :end', { start, end })
+      .orderBy('s.sale_date', 'DESC');
+
+    const sales = await qb.getMany();
+    const saleIds = sales.map((x) => x.id);
+
+    if (saleIds.length === 0) {
+      return {
+        meta: {
+          total_sales: 0,
+          total_amount: 0,
+          total_operating_expenses: 0,
+          net_profit: 0,
+        },
+        sales: [],
+      };
+    }
+
+    // Detalles de las ventas
+    const details = await this.saleDetailRepo
+      .createQueryBuilder('d')
+      .leftJoinAndSelect('d.product', 'p')
+      .where('d.sale_id IN (:...saleIds)', { saleIds })
+      .getMany();
+
+    // Obtener los gastos operativos
+    const operatingExpenses = await this.getOperatingExpenses(start, end);
+
+    // Calcular el total de ventas y utilidad neta
+    const totalAmount = sales.reduce((sum, s) => sum + (typeof s.total_amount === 'string' ? parseFloat(s.total_amount) : s.total_amount), 0);
+    const netProfit = totalAmount - operatingExpenses;
+
+    return {
+      meta: {
+        total_sales: sales.length,
+        total_amount: totalAmount,
+        total_operating_expenses: operatingExpenses,
+        net_profit: netProfit,
+      },
+      sales: sales.map((s) => ({
+        sale_id: s.id,
+        sale_code: s.sale_code,
+        sale_date: s.sale_date,
+        total_amount: s.total_amount,
+      })),
+    };
+  }
+
+  public async getOperatingExpenses(start: Date, end: Date): Promise<number> {
+  const result = await this.cashMovementRepo
+    .createQueryBuilder('cm')
+    .select('SUM(cm.amount)', 'total')  // Realizamos la suma de la columna 'amount'
+    .where('cm.type = :type', { type: 'EXPENSE' })  // Filtramos por tipo de movimiento (gasto)
+    .andWhere('cm.created_at BETWEEN :start AND :end', { start, end })  // Rango de fechas
+    .getRawOne();  // Obtenemos el resultado de la suma
+
+  // Si result.total es null, lo convertimos a 0
+  return result?.total ? parseFloat(result.total) : 0;
+}
+  async getSellerCommissionReport(dto: SalesReportQueryDto) {
+    const { start, end } = this.buildRange(dto);
+
+    // Obtener ventas de zapatillas en el rango de fechas
+    const qb = this.saleDetailRepo
+      .createQueryBuilder('d')
+      .leftJoinAndSelect('d.product', 'p')
+      .leftJoinAndSelect('p.category', 'c')
+      .leftJoinAndSelect('d.sale', 's')
+      .where('d.sale_date BETWEEN :start AND :end', { start, end })
+      .andWhere('c.name = :category', { category: 'Zapatillas' });
+
+    const salesDetails = await qb.getMany();
+
+    // Calcular los pares vendidos por vendedor
+    const sellerCommissions: Map<number, { seller_id: number; seller_name: string; pairs_sold: number; commission: number }> = new Map();
+
+    for (const detail of salesDetails) {
+      const sellerId = detail.sale.user_id;
+      const sellerName = detail.sale.user?.full_name ?? 'Unknown';
+      const quantity = parseInt(detail.quantity.toString(), 10); // Asegúrate de manejar correctamente la cantidad
+      const commissionPerPair = 1; // 1 sol por par de zapatillas
+
+      if (!sellerCommissions.has(sellerId)) {
+        sellerCommissions.set(sellerId, {
+          seller_id: sellerId,
+          seller_name: sellerName,
+          pairs_sold: 0,
+          commission: 0,
+        });
+      }
+
+      const sellerData = sellerCommissions.get(sellerId)!;
+      sellerData.pairs_sold += quantity;
+      sellerData.commission += quantity * commissionPerPair;
+    }
+
+    return {
+      meta: {
+        total_sellers: sellerCommissions.size,
+      },
+      commissions: Array.from(sellerCommissions.values()),
+    };
+  }
+
 }

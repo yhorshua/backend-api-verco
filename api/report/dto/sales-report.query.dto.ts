@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsIn, IsInt, IsISO8601, IsOptional, Min } from 'class-validator';
+import { IsDateString, IsIn, IsInt, IsISO8601, IsOptional, Min } from 'class-validator';
 
 export class SalesReportQueryDto {
   // 1) tienda
@@ -34,4 +34,13 @@ export class SalesReportQueryDto {
   @IsInt()
   @Min(1)
   userId?: number;
+
+  @IsDateString()
+  @IsOptional()
+  start: string; // fecha de inicio (rango de fechas, si aplica)
+
+  @IsDateString()
+  @IsOptional()
+  end: string; // fecha de fin (rango de fechas, si aplica)
+
 }
