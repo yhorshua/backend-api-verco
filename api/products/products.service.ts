@@ -26,18 +26,34 @@ export class ProductsService {
 
 
   async createMany(createProductDtos: CreateProductDto[]): Promise<Product[]> {
-    const savedProducts: Product[] = [];
+  const savedProducts: Product[] = [];
 
-    return this.productRepo.manager.transaction(async (manager: EntityManager) => {
-      for (const createProductDto of createProductDtos) {
+  return this.productRepo.manager.transaction(async (manager: EntityManager) => {
+    for (const createProductDto of createProductDtos) {
+      // Buscar la categoría
+      const category = await manager.findOne(Category, { where: { id: createProductDto.categoryId } });
 
-        const category = await manager.findOne(Category, { where: { id: createProductDto.categoryId } });
+      if (!category) {
+        throw new NotFoundException(`Categoría ${createProductDto.categoryId} no encontrada`);
+      }
 
-        if (!category) {
-          throw new NotFoundException(`Categoría ${createProductDto.categoryId} no encontrada`);
-        }
-        // 1) Crear el producto
-        const product = manager.create(Product, {
+      // 1) Verificar si el producto ya existe por el código de artículo
+      let product = await manager.findOne(Product, { where: { article_code: createProductDto.article_code } });
+
+      if (product) {
+        // Si el producto ya existe, actualizamos los campos
+        product.article_description = createProductDto.article_description;
+        product.article_series = createProductDto.article_series;
+        product.type_origin = createProductDto.type_origin;
+        product.manufacturing_cost = createProductDto.manufacturing_cost;
+        product.unit_price = createProductDto.unit_price;
+        product.category = category;
+        
+        // 2) Guardar el producto actualizado
+        product = await manager.save(Product, product);
+      } else {
+        // Si no existe, crear el producto
+        product = manager.create(Product, {
           article_code: createProductDto.article_code,
           article_description: createProductDto.article_description,
           article_series: createProductDto.article_series,
@@ -54,27 +70,29 @@ export class ProductsService {
           product_image: createProductDto.product_image,
         });
 
-        // 2) Guardar el producto
-        const savedProduct = await manager.save(Product, product);
-
-        // 3) Crear y asociar las tallas del producto
-        for (const size of createProductDto.sizes) {
-          const productSize = manager.create(ProductSize, {
-            product: savedProduct,
-            size: size,
-            lot_pair: createProductDto.lot_pair, // Si es necesario
-          });
-
-          // 4) Guardar la talla
-          await manager.save(ProductSize, productSize);
-        }
-
-        savedProducts.push(savedProduct);
+        // 3) Guardar el producto nuevo
+        product = await manager.save(Product, product);
       }
 
-      return savedProducts;
-    });
-  }
+      // 4) Crear y asociar las tallas del producto
+      for (const size of createProductDto.sizes) {
+        const productSize = manager.create(ProductSize, {
+          product: product,
+          size: size,
+          lot_pair: createProductDto.lot_pair, // Si es necesario
+        });
+
+        // 5) Guardar la talla
+        await manager.save(ProductSize, productSize);
+      }
+
+      savedProducts.push(product);
+    }
+
+    return savedProducts;
+  });
+}
+
 
   async findAll(): Promise<Product[]> {
     return await this.productRepo.find({ relations: ['sizes', 'series', 'category'] });
