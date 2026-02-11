@@ -142,7 +142,7 @@ export class ProductsService {
     }
 
     if (serie) {
-    queryBuilder.andWhere('product.article_series = :serie', { serie });
+    queryBuilder.andWhere('product.series.code = :serie', { serie });
   }
     // Filtrar productos activos
     queryBuilder.andWhere('product.status = 1');

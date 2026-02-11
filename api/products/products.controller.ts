@@ -19,7 +19,7 @@ export class ProductsController {
   async getProducts(
     @Query('categoryId') categoryId: number | null = null,  // Categoria opcional
     @Query('warehouseId') warehouseId: number,       // Warehouse obligatorio
-    @Query('categoryId') serie: string | null = null  // Categoria opcional
+    @Query('serie') serie: string | null = null  // Categoria opcional
   ) {
     console.log('categoryId:', categoryId);  // Verifica el valor de categoryId
     console.log('warehouseId:', warehouseId); // Verifica el valor de warehouseId
