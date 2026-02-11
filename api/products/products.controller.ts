@@ -18,11 +18,12 @@ export class ProductsController {
   @Get('filter')
   async getProducts(
     @Query('categoryId') categoryId: number | null = null,  // Categoria opcional
-    @Query('warehouseId') warehouseId: number       // Warehouse obligatorio
+    @Query('warehouseId') warehouseId: number,       // Warehouse obligatorio
+    @Query('categoryId') serie: string | null = null  // Categoria opcional
   ) {
     console.log('categoryId:', categoryId);  // Verifica el valor de categoryId
     console.log('warehouseId:', warehouseId); // Verifica el valor de warehouseId
-    const products = await this.productsService.findByCategoryAndWarehouse(categoryId, warehouseId);
+    const products = await this.productsService.findByCategoryAndWarehouse(categoryId, warehouseId, serie);
     return products;
   }
 

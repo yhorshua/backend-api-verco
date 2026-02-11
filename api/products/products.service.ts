@@ -125,7 +125,7 @@ export class ProductsService {
   /**
    * Consultar productos disponibles en un almacén específico
    */
-  async findByCategoryAndWarehouse(categoryId: number | null, warehouseId: number): Promise<Product[]> {
+  async findByCategoryAndWarehouse(categoryId: number | null, warehouseId: number, serie: string | null): Promise<Product[]> {
     const queryBuilder = this.productRepo.createQueryBuilder('product')
       .leftJoinAndSelect('product.sizes', 'sizes')
       .leftJoinAndSelect('product.series', 'series')
@@ -141,6 +141,9 @@ export class ProductsService {
       queryBuilder.andWhere('product.category_id = :categoryId', { categoryId });
     }
 
+    if (serie) {
+    queryBuilder.andWhere('product.article_series = :serie', { serie });
+  }
     // Filtrar productos activos
     queryBuilder.andWhere('product.status = 1');
 
