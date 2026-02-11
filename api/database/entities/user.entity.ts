@@ -44,4 +44,8 @@ export class User {
   @ManyToOne(() => Warehouse)
   @JoinColumn({ name: 'warehouse_id' })
   warehouse: Warehouse;
+
+  @Column({ type: 'decimal', default: 0 })
+  salario: number;
+
 }

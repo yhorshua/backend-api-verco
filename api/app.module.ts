@@ -41,6 +41,8 @@ import { PackingModule } from './packing/packing.module';
 import { Escaneo } from './database/entities/escaneo.entity';
 import { CategoriesModule } from './categories/categories.module';
 import { Category } from './database/entities/categories.entity';
+import { Attendance } from './database/entities/marcacion.entity';
+import { AttendanceModule } from './markAttendance/markAttendance.module';
 
 @Module({
   imports: [
@@ -83,6 +85,7 @@ import { Category } from './database/entities/categories.entity';
         StockReservation,
         Escaneo,
         Category,
+        Attendance,
       ],
     }),
 
@@ -100,6 +103,7 @@ import { Category } from './database/entities/categories.entity';
     OrdersModule,
     PackingModule,
     CategoriesModule,
+    AttendanceModule,
   ],
   controllers: [AppController],
   providers: [AppService],
