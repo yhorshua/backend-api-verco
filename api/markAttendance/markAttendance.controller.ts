@@ -1,12 +1,14 @@
-import { Controller, Post, Body, Param, Get } from '@nestjs/common';
+import { Controller, Post, Body, Param, Get, UseGuards } from '@nestjs/common';
 import { AttendanceService } from './markAttendance.service';
 import { Attendance } from '../database/entities/marcacion.entity';
+import { JwtAuthGuard } from 'api/auth/jwt-auth.guard';
 
 @Controller('attendance')
 export class AttendanceController {
   constructor(private readonly attendanceService: AttendanceService) {}
 
   // Ruta para marcar la entrada o salida
+  @UseGuards(JwtAuthGuard)
   @Post('mark')
   async markAttendance(
     @Body('userId') userId: number,
@@ -17,6 +19,7 @@ export class AttendanceController {
   }
 
   // Ruta para obtener las asistencias de un empleado
+  @UseGuards(JwtAuthGuard)
   @Get(':userId')
   async getAttendanceByUser(@Param('userId') userId: number): Promise<Attendance[]> {
     return this.attendanceService.getAttendanceByUser(userId);

@@ -16,6 +16,7 @@ export class UsersController {
     return this.usersService.findAll();
   }
   // GET /users/by-warehouse?warehouseId=1
+  @UseGuards(JwtAuthGuard)
   @Get('by-warehouse')
   @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
   getByWarehouse(@Query() dto: SellersByWarehouseQueryDto) {
@@ -28,6 +29,7 @@ export class UsersController {
     return this.usersService.findOne(id);
   }
 
+  @UseGuards(JwtAuthGuard)
   @Post()
   create(@Body() dto: CreateUserDto) {
     return this.usersService.create(dto);

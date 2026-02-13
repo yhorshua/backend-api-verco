@@ -1,7 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import { ExecutionContext, Injectable, UnauthorizedException } from '@nestjs/common';
 import { UsersService } from '../users/users.service';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
+import { JwtPayload } from './interface'; // Ajusta la ruta según sea necesario
 
 @Injectable()
 export class AuthService {
@@ -38,5 +39,23 @@ export class AuthService {
         warehouse: user.warehouse,  // Incluimos la relación 'warehouse'
       },
     };
+  }
+
+  async canActivate(context: ExecutionContext): Promise<boolean> {
+    const request = context.switchToHttp().getRequest();
+    const token = request.headers['authorization']?.replace('Bearer ', ''); // Obtener el token
+
+    if (!token) {
+      throw new UnauthorizedException('Token no proporcionado');
+    }
+
+    try {
+      // Verificar el token
+      const decoded = await this.jwtService.verifyAsync<JwtPayload>(token); // Verificamos el token con jwtService
+      request.user = decoded; // Guardamos el payload decodificado en la solicitud (puedes usar esto para acceder a la información del usuario)
+      return true; // Token es válido
+    } catch (error) {
+      throw new UnauthorizedException('Token inválido o expirado');
+    }
   }
 }

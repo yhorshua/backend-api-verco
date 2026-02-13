@@ -1,12 +1,14 @@
-import { Controller, Get, Post, Body, Param } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, UseGuards } from '@nestjs/common';
 import { StockService } from './stock.service';
 import { CreateMovementDto } from './dto/create-movement.dto';
 import { CreateSaleDto } from './dto/create-sale.dto';
+import { JwtAuthGuard } from 'api/auth/jwt-auth.guard';
 
 @Controller('stock')
 export class StockController {
   constructor(private readonly stockService: StockService) { }
 
+  @UseGuards(JwtAuthGuard)
   @Post('register-multiple')
   async registerStockForMultipleItems(
     @Body() stockDto: { warehouseId: number; products: {  productId: number; productSizeId: number; quantity: number }[] }
@@ -15,6 +17,7 @@ export class StockController {
     return await this.stockService.registerStockForMultipleItems(warehouseId, products);
   }
 
+  @UseGuards(JwtAuthGuard)
   @Get('by-warehouse/:warehouseId/article/:articleCode')
   getByWarehouseAndArticle(
     @Param('warehouseId') warehouseId: string,
@@ -26,6 +29,7 @@ export class StockController {
     );
   }
 
+  @UseGuards(JwtAuthGuard)
   @Post('sale')
   registerSale(@Body() dto: CreateSaleDto) {
     return this.stockService.registerSale(dto);
