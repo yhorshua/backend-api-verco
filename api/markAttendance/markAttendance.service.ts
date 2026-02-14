@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Attendance } from '../database/entities/marcacion.entity';
 import { User } from '../database/entities/user.entity';
+import moment from 'moment-timezone'; // Importa moment-timezone
 
 @Injectable()
 export class AttendanceService {
@@ -16,7 +17,7 @@ export class AttendanceService {
     // Método para marcar la entrada o salida
     async markAttendance(userId: number, type: 'entrada' | 'salida', ubicacion: string): Promise<Attendance> {
         const user = await this.userRepository.findOne({
-            where: { id: userId }, // Se debe usar `where` para proporcionar la condición de búsqueda
+            where: { id: userId },
         });
 
         if (!user) {
@@ -33,17 +34,20 @@ export class AttendanceService {
             throw new Error('El usuario ya ha registrado su entrada');
         }
 
+        // Utiliza moment-timezone para obtener la fecha y hora en la zona horaria de Lima
+        const fechaLima = moment().tz('America/Lima').toDate(); // Obtiene la fecha como objeto Date
+
         const attendance = this.attendanceRepository.create({
             user,
-            fecha: new Date(),
+            fecha: fechaLima, // Asigna la fecha con la zona horaria de Lima
             tipo: type,
             ubicacion,
         });
 
         if (type === 'entrada') {
-            attendance.hora_entrada = new Date();
+            attendance.hora_entrada = fechaLima; // Asigna hora de entrada en Lima
         } else if (type === 'salida' && lastAttendance) {
-            lastAttendance.hora_salida = new Date();
+            lastAttendance.hora_salida = fechaLima; // Asigna hora de salida en Lima
             await this.attendanceRepository.save(lastAttendance);
             return lastAttendance; // Devolver el registro actualizado
         }
