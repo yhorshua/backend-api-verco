@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, MoreThanOrEqual } from 'typeorm';
 import { Attendance } from '../database/entities/marcacion.entity';
 import { User } from '../database/entities/user.entity';
 import moment from 'moment-timezone'; // Importa moment-timezone
@@ -24,19 +24,10 @@ export class AttendanceService {
             throw new Error('Usuario no encontrado');
         }
 
-        // Verificar si ya existe un registro de entrada para este usuario
-        const lastAttendance = await this.attendanceRepository.findOne({
-            where: { user: { id: userId }, tipo: 'entrada' },
-            order: { fecha: 'DESC' },
-        });
-
-        if (type === 'entrada' && lastAttendance) {
-            throw new Error('El usuario ya ha registrado su entrada');
-        }
-
-        // Utiliza moment-timezone para obtener la fecha y hora en la zona horaria de Lima
+        // Obtiene la fecha y hora actual en la zona horaria de Lima
         const fechaLima = moment().tz('America/Lima').toDate(); // Obtiene la fecha como objeto Date
 
+        // Crear un nuevo registro de asistencia cada vez que se registre entrada o salida
         const attendance = this.attendanceRepository.create({
             user,
             fecha: fechaLima, // Asigna la fecha con la zona horaria de Lima
@@ -46,17 +37,33 @@ export class AttendanceService {
 
         if (type === 'entrada') {
             attendance.hora_entrada = fechaLima; // Asigna hora de entrada en Lima
-        } else if (type === 'salida' && lastAttendance) {
-            lastAttendance.hora_salida = fechaLima; // Asigna hora de salida en Lima
-            await this.attendanceRepository.save(lastAttendance);
-            return lastAttendance; // Devolver el registro actualizado
+        } else if (type === 'salida') {
+            attendance.hora_salida = fechaLima; // Asigna hora de salida en Lima
         }
 
+        // Guardar el nuevo registro de asistencia
         return await this.attendanceRepository.save(attendance);
     }
 
     // Método para obtener las asistencias de un empleado
     async getAttendanceByUser(userId: number): Promise<Attendance[]> {
-        return await this.attendanceRepository.find({ where: { user: { id: userId } } });
+        return await this.attendanceRepository.find({ where: { user: { id: userId } }, order: { fecha: 'DESC' } });
+    }
+
+    async hasUserEnteredToday(userId: number): Promise<boolean> {
+        // Obtiene la fecha actual en Lima
+        const today = moment().tz('America/Lima').startOf('day').toDate();
+
+        // Buscar si ya hay un registro de entrada para este usuario en el día de hoy
+        const attendance = await this.attendanceRepository.findOne({
+            where: { 
+                user: { id: userId }, 
+                tipo: 'entrada',
+                fecha: MoreThanOrEqual(today),  // Usa MoreThanOrEqual para comparar con la fecha de hoy
+            },
+            order: { fecha: 'DESC' }, // Si hay varios, obtenemos el último
+        });
+
+        return attendance !== undefined;
     }
 }

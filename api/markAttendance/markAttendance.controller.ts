@@ -24,4 +24,10 @@ export class AttendanceController {
   async getAttendanceByUser(@Param('userId') userId: number): Promise<Attendance[]> {
     return this.attendanceService.getAttendanceByUser(userId);
   }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('has-entered-today/:userId')
+  async hasUserEnteredToday(@Param('userId') userId: number): Promise<boolean> {
+    return await this.attendanceService.hasUserEnteredToday(userId);
+  }
 }
