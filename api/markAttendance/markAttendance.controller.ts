@@ -5,7 +5,7 @@ import { JwtAuthGuard } from 'api/auth/jwt-auth.guard';
 
 @Controller('attendance')
 export class AttendanceController {
-  constructor(private readonly attendanceService: AttendanceService) {}
+  constructor(private readonly attendanceService: AttendanceService) { }
 
   // Ruta para marcar la entrada o salida
   @UseGuards(JwtAuthGuard)
@@ -27,7 +27,22 @@ export class AttendanceController {
 
   @UseGuards(JwtAuthGuard)
   @Get('has-entered-today/:userId')
-  async hasUserEnteredToday(@Param('userId') userId: number): Promise<boolean> {
-    return await this.attendanceService.hasUserEnteredToday(userId);
+  async hasUserEnteredToday(@Param('userId') userId: number) {
+    const result = await this.attendanceService.hasUserEnteredToday(userId);
+
+    if (!result) {
+      return {
+        message: 'El usuario no ha registrado su entrada hoy.',
+        hasEntered: false,
+      };
+    }
+
+    return {
+      message: 'El usuario ha registrado su entrada hoy.',
+      hasEntered: true,
+      userId: result.userId,
+      tipo: result.tipo, // tipo 'entrada'
+    };
   }
+
 }

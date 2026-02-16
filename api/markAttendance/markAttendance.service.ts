@@ -50,20 +50,30 @@ export class AttendanceService {
         return await this.attendanceRepository.find({ where: { user: { id: userId } }, order: { fecha: 'DESC' } });
     }
 
-    async hasUserEnteredToday(userId: number): Promise<boolean> {
+    async hasUserEnteredToday(userId: number): Promise<{ userId: number, tipo: string } | null> {
         // Obtiene la fecha actual en Lima
         const today = moment().tz('America/Lima').startOf('day').toDate();
 
         // Buscar si ya hay un registro de entrada para este usuario en el día de hoy
         const attendance = await this.attendanceRepository.findOne({
-            where: { 
-                user: { id: userId }, 
+            where: {
+                user: { id: userId },
                 tipo: 'entrada',
                 fecha: MoreThanOrEqual(today),  // Usa MoreThanOrEqual para comparar con la fecha de hoy
             },
             order: { fecha: 'DESC' }, // Si hay varios, obtenemos el último
         });
 
-        return attendance !== undefined;
+        // Si se encuentra un registro de entrada, devolvemos la información del usuario y tipo de entrada
+        if (attendance) {
+            return {
+                userId: attendance.user.id,
+                tipo: attendance.tipo,
+            };
+        }
+
+        // Si no hay un registro, devolvemos null
+        return null;
     }
+
 }
