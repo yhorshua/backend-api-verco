@@ -15,6 +15,7 @@ import { CashMovement } from '../database/entities/cash-movement.entity';
 import { CreateSaleDto, PaymentMethod } from './dto/create-sale.dto';
 import { ProductSize } from 'api/database/entities/product-size.entity';
 import { Product } from 'api/database/entities/product.entity';
+import moment from 'moment-timezone';
 
 @Injectable()
 export class StockService {
@@ -57,6 +58,8 @@ export class StockService {
     }
 
     return this.dataSource.transaction(async (manager) => {
+
+      const fechaLima = moment().tz('America/Lima').toDate();
       // 0) Validar warehouse tipo "tienda"
       await this.assertWarehouseIsStore(manager, dto.warehouse_id);
 
@@ -70,7 +73,7 @@ export class StockService {
       const { validated, total_amount } = await this.validateStockAndComputeTotal(manager, dto);
 
       // 3) Crear venta
-      const sale = await this.createSaleHeader(manager, dto, sale_code, total_amount);
+      const sale = await this.createSaleHeader(manager, dto, sale_code, total_amount, fechaLima);
 
       // 4) Crear detalles + movimientos + descontar stock
       const stockMovements = await this.createDetailsAndStockOutputs(manager, dto, sale, validated);
@@ -186,6 +189,7 @@ export class StockService {
     dto: CreateSaleDto,
     sale_code: string,
     total_amount: number,
+    sale_date: Date,
   ) {
     const sale = manager.create(Sale, {
       sale_code,
@@ -194,6 +198,7 @@ export class StockService {
       customer_id: dto.customer_id,
       total_amount,
       payment_method: dto.payment_method,
+      sale_date,
     });
 
     await manager.save(Sale, sale);
@@ -216,6 +221,7 @@ export class StockService {
         product_size_id: item.product_size_id ?? null,
         quantity: item.quantity,
         unit_price,
+        sale_date: moment().tz('America/Lima').toDate(),
       });
       await manager.save(SaleDetail, detail);
 
@@ -229,6 +235,7 @@ export class StockService {
         movement_type: 'salida',
         reference: `Venta ${sale.sale_code}`,
         user_id: dto.user_id,
+        movement_date: moment().tz('America/Lima').toDate(), 
       });
       await manager.save(StockMovement, movement);
       movements.push(movement);

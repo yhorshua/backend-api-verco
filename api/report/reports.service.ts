@@ -136,6 +136,23 @@ export class ReportsService {
       .leftJoinAndSelect('d.product', 'p')
       .leftJoinAndSelect('d.productSize', 'ps')
       .where('d.sale_id IN (:...saleIds)', { saleIds })
+      .select([
+        'd.id',
+        'd.quantity',
+        'd.unit_price',
+        'p.article_code',
+        'p.article_description',
+        'p.type_origin',
+        'p.manufacturing_cost',
+        'p.unit_price',
+        'p.brand_name',
+        'p.model_code',
+        'p.category',
+        'p.material_type',
+        'p.color',
+        'p.product_image',
+        'ps.size',
+      ])
       .getMany();
 
     // 4) pagos (SalePayments)
@@ -162,12 +179,10 @@ export class ReportsService {
     // 6) formato final para el front
     const reportSales: ReportRow[] = sales.map((s) => {
       const saleDetails = (detailsBySale.get(s.id) ?? []).map((d) => {
-        // ojo: decimal puede venir string, lo dejamos string
         const qty: any = d.quantity as any;
         const up: any = d.unit_price as any;
 
-        // line_total como string (evitamos floating)
-        // si ya viene string decimal, lo tratamos como number solo para producto visual (no exacto financiero).
+        // line_total como string
         const lineTotal =
           typeof qty === 'string' || typeof up === 'string'
             ? (Number(qty) * Number(up)).toFixed(2)
@@ -200,18 +215,13 @@ export class ReportsService {
         sale_id: s.id,
         sale_code: s.sale_code,
         sale_date: s.sale_date,
-
         warehouse_id: s.warehouse_id,
         warehouse_name: s.warehouse?.warehouse_name ?? warehouse.warehouse_name ?? null,
-
         user_id: s.user_id,
         user_name: s.user?.full_name ?? '',
-
         customer_id: s.customer_id ?? null,
-
         total_amount: String(s.total_amount),
         payment_method: s.payment_method ?? null,
-
         details: saleDetails,
         payments: salePayments,
       };
@@ -273,6 +283,7 @@ export class ReportsService {
       summary_by_payment_method: Array.from(summaryByPaymentMap.values()).sort((a, b) => b.total_amount - a.total_amount),
     };
   }
+
 
   async getCashClosureReport(dto: SalesReportQueryDto) {
     const { start, end } = this.buildRange(dto);
