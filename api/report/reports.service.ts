@@ -85,7 +85,7 @@ export class ReportsService {
     return { start, end };
   }
 
- async salesReport(dto: SalesReportQueryDto) {
+async salesReport(dto: SalesReportQueryDto) {
   const { start, end } = this.buildRange(dto);
 
   // 1) Obtener datos de warehouse + (opcional) user
@@ -207,7 +207,7 @@ export class ReportsService {
         series: d.product?.series?.code ?? '',
         stock_movement_quantity: d.stockMovement?.quantity ?? 0,
         movement_type: d.stockMovement?.movement_type ?? '',
-        movement_date: d.stockMovement?.created_at ?? '',
+        movement_date: d.stockMovement?.created_at ? d.stockMovement?.created_at.toISOString() : '',
       };
     });
 
@@ -293,7 +293,6 @@ export class ReportsService {
     summary_by_payment_method: Array.from(summaryByPaymentMap.values()).sort((a, b) => b.total_amount - a.total_amount),
   };
 }
-
 
 
   async getCashClosureReport(dto: SalesReportQueryDto) {
