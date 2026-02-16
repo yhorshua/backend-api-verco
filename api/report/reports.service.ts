@@ -158,7 +158,7 @@ async salesReport(dto: SalesReportQueryDto) {
       'p.color',
       'p.product_image',
       'ps.size',
-      'series.name', // El nombre de la serie
+      'series.code', // El nombre de la serie
       'sm.quantity as stock_movement_quantity', // Cantidad de movimiento de stock
       'sm.movement_type', // Tipo de movimiento de stock
       'sm.reference', // Referencia del movimiento de stock
