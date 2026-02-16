@@ -206,58 +206,57 @@ export class StockService {
   }
 
   private async createDetailsAndStockOutputs(
-    manager: EntityManager,
-    dto: CreateSaleDto,
-    sale: Sale,
-    validated: Array<{ item: any; unit_price: number }>,
-  ): Promise<StockMovement[]> {
-    const movements: StockMovement[] = [];
+  manager: EntityManager,
+  dto: CreateSaleDto,
+  sale: Sale,
+  validated: Array<{ item: any; unit_price: number }>
+): Promise<StockMovement[]> {
+  const movements: StockMovement[] = [];
 
+  for (const { item, unit_price } of validated) {
+    // Crear el movimiento de stock primero
+    const movement = manager.create(StockMovement, {
+      warehouse_id: dto.warehouse_id,
+      product_id: item.product_id,
+      product_size_id: item.product_size_id ?? null,
+      quantity: -Math.abs(Number(item.quantity)),
+      unit_of_measure: item.unit_of_measure,
+      movement_type: 'salida',
+      reference: `Venta ${sale.sale_code}`,
+      user_id: dto.user_id,
+      movement_date: moment().tz('America/Lima').toDate(),
+    });
+    await manager.save(StockMovement, movement);
+    movements.push(movement);
 
+    // Crear el detalle de la venta y asociarlo con el movimiento de stock
+    const detail = manager.create(SaleDetail, {
+      sale_id: sale.id,
+      product_id: item.product_id,
+      product_size_id: item.product_size_id ?? null,
+      quantity: item.quantity,
+      unit_price,
+      sale_date: moment().tz('America/Lima').toDate(),
+      stockMovement: movement,  // Asociamos el StockMovement
+    });
+    await manager.save(SaleDetail, detail);
 
-    for (const { item, unit_price } of validated) {
-      // detalle
-      const detail = manager.create(SaleDetail, {
-        sale_id: sale.id,
-        product_id: item.product_id,
-        product_size_id: item.product_size_id ?? null,
-        quantity: item.quantity,
-        unit_price,
-        sale_date: moment().tz('America/Lima').toDate(),
-        stockMovement: movement,
-      });
-      await manager.save(SaleDetail, detail);
-
-      // movimiento stock
-      const movement = manager.create(StockMovement, {
+    // Descontar stock
+    await manager.decrement(
+      Stock,
+      {
         warehouse_id: dto.warehouse_id,
         product_id: item.product_id,
         product_size_id: item.product_size_id ?? null,
-        quantity: -Math.abs(Number(item.quantity)),
-        unit_of_measure: item.unit_of_measure,
-        movement_type: 'salida',
-        reference: `Venta ${sale.sale_code}`,
-        user_id: dto.user_id,
-        movement_date: moment().tz('America/Lima').toDate(),
-      });
-      await manager.save(StockMovement, movement);
-      movements.push(movement);
-
-      // descontar stock
-      await manager.decrement(
-        Stock,
-        {
-          warehouse_id: dto.warehouse_id,
-          product_id: item.product_id,
-          product_size_id: item.product_size_id ?? null,
-        },
-        'quantity',
-        item.quantity,
-      );
-    }
-
-    return movements;
+      },
+      'quantity',
+      item.quantity,
+    );
   }
+
+  return movements;
+}
+
 
   /**
    * ✅ Crea SalePayments y valida con el total real (sale.total_amount)
