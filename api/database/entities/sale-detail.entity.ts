@@ -2,6 +2,7 @@ import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn } from 't
 import { Sale } from './sale.entity';
 import { Product } from './product.entity';
 import { ProductSize } from './product-size.entity';
+import { StockMovement } from './stock-movements';
 
 @Entity('SaleDetails')
 export class SaleDetail {
@@ -34,4 +35,9 @@ export class SaleDetail {
 
   @Column('decimal', { precision: 10, scale: 2 })
   unit_price: number;
+
+  // Relación con StockMovement
+  @ManyToOne(() => StockMovement, { nullable: true })
+  @JoinColumn({ name: 'stock_movement_id' })
+  stockMovement: StockMovement | null;
 }

@@ -213,6 +213,8 @@ export class StockService {
   ): Promise<StockMovement[]> {
     const movements: StockMovement[] = [];
 
+
+
     for (const { item, unit_price } of validated) {
       // detalle
       const detail = manager.create(SaleDetail, {
@@ -222,6 +224,7 @@ export class StockService {
         quantity: item.quantity,
         unit_price,
         sale_date: moment().tz('America/Lima').toDate(),
+        stockMovement: movement,
       });
       await manager.save(SaleDetail, detail);
 
@@ -235,7 +238,7 @@ export class StockService {
         movement_type: 'salida',
         reference: `Venta ${sale.sale_code}`,
         user_id: dto.user_id,
-        movement_date: moment().tz('America/Lima').toDate(), 
+        movement_date: moment().tz('America/Lima').toDate(),
       });
       await manager.save(StockMovement, movement);
       movements.push(movement);
