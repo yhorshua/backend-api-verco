@@ -2,6 +2,7 @@ import { Controller, Post, Body, Param, Get, UseGuards } from '@nestjs/common';
 import { AttendanceService } from './markAttendance.service';
 import { Attendance } from '../database/entities/marcacion.entity';
 import { JwtAuthGuard } from 'api/auth/jwt-auth.guard';
+import { HasUserEnteredTodayResponseDto } from './hasUserEnteredTodayResponse.dto';
 
 @Controller('attendance')
 export class AttendanceController {
@@ -18,16 +19,11 @@ export class AttendanceController {
     return this.attendanceService.markAttendance(userId, type, ubicacion);
   }
 
-  // Ruta para obtener las asistencias de un empleado
-  @UseGuards(JwtAuthGuard)
-  @Get(':userId')
-  async getAttendanceByUser(@Param('userId') userId: number): Promise<Attendance[]> {
-    return this.attendanceService.getAttendanceByUser(userId);
-  }
+
 
   @UseGuards(JwtAuthGuard)
   @Get('has-entered-today/:userId')
-  async hasUserEnteredToday(@Param('userId') userId: number) {
+  async hasUserEnteredToday(@Param('userId') userId: number): Promise<HasUserEnteredTodayResponseDto> {
     const result = await this.attendanceService.hasUserEnteredToday(userId);
 
     if (!result) {
@@ -37,12 +33,6 @@ export class AttendanceController {
       };
     }
 
-    return {
-      message: 'El usuario ha registrado su entrada hoy.',
-      hasEntered: true,
-      userId: result.userId,
-      tipo: result.tipo, // tipo 'entrada'
-    };
+    return result;  // Devolvemos el DTO que ya contiene la respuesta
   }
-
 }

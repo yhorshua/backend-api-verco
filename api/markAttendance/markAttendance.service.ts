@@ -4,6 +4,7 @@ import { Repository, MoreThanOrEqual } from 'typeorm';
 import { Attendance } from '../database/entities/marcacion.entity';
 import { User } from '../database/entities/user.entity';
 import moment from 'moment-timezone'; // Importa moment-timezone
+import { HasUserEnteredTodayResponseDto } from './hasUserEnteredTodayResponse.dto';
 
 @Injectable()
 export class AttendanceService {
@@ -50,30 +51,33 @@ export class AttendanceService {
         return await this.attendanceRepository.find({ where: { user: { id: userId } }, order: { fecha: 'DESC' } });
     }
 
-    async hasUserEnteredToday(userId: number): Promise<{ userId: number, tipo: string } | null> {
-        // Obtiene la fecha actual en Lima
-        const today = moment().tz('America/Lima').startOf('day').toDate();
+    async hasUserEnteredToday(userId: number): Promise<HasUserEnteredTodayResponseDto | null> {
+    const today = moment().tz('America/Lima').startOf('day').toDate();
 
-        // Buscar si ya hay un registro de entrada para este usuario en el día de hoy
-        const attendance = await this.attendanceRepository.findOne({
-            where: {
-                user: { id: userId },
-                tipo: 'entrada',
-                fecha: MoreThanOrEqual(today),  // Usa MoreThanOrEqual para comparar con la fecha de hoy
-            },
-            order: { fecha: 'DESC' }, // Si hay varios, obtenemos el último
-        });
+    // Buscar si ya hay un registro de entrada para este usuario en el día de hoy
+    const attendance = await this.attendanceRepository.findOne({
+        where: {
+            user: { id: userId },
+            tipo: 'entrada',
+            fecha: MoreThanOrEqual(today),
+        },
+        relations: ['user'],  // Asegúrate de cargar la relación 'user'
+        order: { fecha: 'DESC' },
+    });
 
-        // Si se encuentra un registro de entrada, devolvemos la información del usuario y tipo de entrada
-        if (attendance) {
-            return {
-                userId: attendance.user.id,
-                tipo: attendance.tipo,
-            };
-        }
-
-        // Si no hay un registro, devolvemos null
-        return null;
+    if (!attendance || !attendance.user) {  // Verifica que attendance.user no sea undefined
+        return {
+            message: 'El usuario no ha registrado su entrada hoy.',
+            hasEntered: false,
+        };
     }
+
+    return {
+        message: 'El usuario ha registrado su entrada hoy.',
+        hasEntered: true,
+        userId: attendance.user.id,  // Ahora puedes acceder a attendance.user.id sin problemas
+        tipo: attendance.tipo, // Devolvemos el tipo de entrada (entrada o salida)
+    };
+}
 
 }

@@ -1,6 +1,7 @@
-import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn, OneToMany } from 'typeorm';
 import { Role } from './role.entity';
 import { Warehouse } from './warehouse.entity';
+import { Attendance } from './marcacion.entity';
 
 @Entity('Users')
 export class User {
@@ -47,5 +48,9 @@ export class User {
 
   @Column({ type: 'decimal', default: 0 })
   salario: number;
+
+  @OneToMany(() => Attendance, attendance => attendance.user)
+  attendances: Attendance[];
+
 
 }
