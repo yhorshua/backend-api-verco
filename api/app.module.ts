@@ -43,6 +43,7 @@ import { CategoriesModule } from './categories/categories.module';
 import { Category } from './database/entities/categories.entity';
 import { Attendance } from './database/entities/marcacion.entity';
 import { AttendanceModule } from './markAttendance/markAttendance.module';
+import { SaleModule } from './sale/sales.module';
 
 @Module({
   imports: [
@@ -104,6 +105,7 @@ import { AttendanceModule } from './markAttendance/markAttendance.module';
     PackingModule,
     CategoriesModule,
     AttendanceModule,
+    SaleModule,
   ],
   controllers: [AppController],
   providers: [AppService],
