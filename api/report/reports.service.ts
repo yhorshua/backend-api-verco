@@ -531,7 +531,7 @@ export class ReportsService {
       const saleDetails = (detailsBySale.get(s.id) ?? []).map((d) => {
         const qty = Number(d.quantity);
         const unitPrice = Number(d.unit_price);
-        const purchasePrice = Number(d.product.manufacturing_cost); // Precio de compra
+        const purchasePrice = Number(d.product.unit_price); // Precio de compra
         const lineTotal = (qty * unitPrice).toFixed(2);
         const productProfit = (qty * (unitPrice - purchasePrice)).toFixed(2); // Ganancia por producto
 
@@ -555,8 +555,8 @@ export class ReportsService {
           size: d.productSize?.size ?? null,
           quantity: String(d.quantity),
           unit_price: String(d.unit_price),
-          purchase_price: String(purchasePrice),
-          line_total: lineTotal,
+          purchase_price: String(d.product.unit_price),
+          line_total: totalAmount,
           profit: productProfit, // Ganancia por línea de venta
         };
       });
