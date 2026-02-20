@@ -85,38 +85,198 @@ export class ReportsService {
     return { start, end };
   }
 
-async salesReport(dto: SalesReportQueryDto) {
-  const { start, end } = this.buildRange(dto);
+  async salesReport(dto: SalesReportQueryDto) {
+    const { start, end } = this.buildRange(dto);
 
-  // 1) Obtener datos de warehouse + (opcional) user
-  const warehouse = await this.warehouseRepo.findOne({ where: { id: dto.warehouseId } });
-  if (!warehouse) throw new BadRequestException(`warehouseId ${dto.warehouseId} not found`);
+    // 1) Obtener datos de warehouse + (opcional) user
+    const warehouse = await this.warehouseRepo.findOne({ where: { id: dto.warehouseId } });
+    if (!warehouse) throw new BadRequestException(`warehouseId ${dto.warehouseId} not found`);
 
-  let seller: User | null = null;
-  if (dto.userId) {
-    seller = await this.userRepo.findOne({ where: { id: dto.userId, warehouse_id: dto.warehouseId } as any });
-    if (!seller) {
-      throw new BadRequestException(`userId ${dto.userId} not found in warehouseId ${dto.warehouseId}`);
+    let seller: User | null = null;
+    if (dto.userId) {
+      seller = await this.userRepo.findOne({ where: { id: dto.userId, warehouse_id: dto.warehouseId } as any });
+      if (!seller) {
+        throw new BadRequestException(`userId ${dto.userId} not found in warehouseId ${dto.warehouseId}`);
+      }
     }
-  }
 
-  // 2) Traer ventas con warehouse y user para nombres
-  const qb = this.saleRepo
-    .createQueryBuilder('s')
-    .leftJoinAndSelect('s.warehouse', 'w')
-    .leftJoinAndSelect('s.user', 'u')
-    .where('s.warehouse_id = :warehouseId', { warehouseId: dto.warehouseId })
-    .andWhere('s.sale_date BETWEEN :start AND :end', { start, end })
-    .orderBy('s.sale_date', 'DESC');
+    // 2) Traer ventas con warehouse y user para nombres
+    const qb = this.saleRepo
+      .createQueryBuilder('s')
+      .leftJoinAndSelect('s.warehouse', 'w')
+      .leftJoinAndSelect('s.user', 'u')
+      .where('s.warehouse_id = :warehouseId', { warehouseId: dto.warehouseId })
+      .andWhere('s.sale_date BETWEEN :start AND :end', { start, end })
+      .orderBy('s.sale_date', 'DESC');
 
-  if (dto.userId) {
-    qb.andWhere('s.user_id = :userId', { userId: dto.userId });
-  }
+    if (dto.userId) {
+      qb.andWhere('s.user_id = :userId', { userId: dto.userId });
+    }
 
-  const sales = await qb.getMany();
-  const saleIds = sales.map((x) => x.id);
+    const sales = await qb.getMany();
+    const saleIds = sales.map((x) => x.id);
 
-  if (saleIds.length === 0) {
+    if (saleIds.length === 0) {
+      return {
+        meta: {
+          warehouse_id: warehouse.id,
+          warehouse_name: warehouse.warehouse_name ?? null,
+          user_id: seller?.id ?? null,
+          user_name: seller?.full_name ?? null,
+          start,
+          end,
+          total_sales: 0,
+          total_amount: 0,
+        },
+        sales: [],
+        summary_by_seller: [],
+        summary_by_payment_method: [],
+      };
+    }
+
+    // 3) Detalles (SaleDetails) con Product, ProductSize y StockMovement
+    const details = await this.saleDetailRepo
+      .createQueryBuilder('d')
+      .leftJoinAndSelect('d.product', 'p')
+      .leftJoinAndSelect('d.productSize', 'ps')
+      .leftJoinAndSelect('p.series', 'series') // Relación con la serie del producto
+      .leftJoinAndSelect('d.stockMovement', 'sm') // Relación con StockMovement
+      .where('d.sale_id IN (:...saleIds)', { saleIds })
+      .select([
+        'd.id',
+        'd.quantity',
+        'd.unit_price',
+        'p.article_code',
+        'p.article_description',
+        'p.type_origin',
+        'p.manufacturing_cost',
+        'p.unit_price',
+        'p.brand_name',
+        'p.model_code',
+        'p.category',
+        'p.material_type',
+        'p.color',
+        'p.product_image',
+        'ps.size',
+        'series.code', // El nombre de la serie
+        'sm.quantity as stock_movement_quantity', // Cantidad de movimiento de stock
+        'sm.movement_type', // Tipo de movimiento de stock
+        'sm.reference', // Referencia del movimiento de stock
+        'sm.created_at as movement_date', // Fecha de movimiento
+      ])
+      .getMany();
+
+    // 4) Pagos (SalePayments)
+    const payments = await this.salePaymentRepo
+      .createQueryBuilder('sp')
+      .where('sp.sale_id IN (:...saleIds)', { saleIds })
+      .getMany();
+
+    // 5) Armar estructura por sale_id
+    const detailsBySale = new Map<number, SaleDetail[]>();
+    for (const d of details) {
+      const arr = detailsBySale.get(d.sale_id) ?? [];
+      arr.push(d);
+      detailsBySale.set(d.sale_id, arr);
+    }
+
+    const paymentsBySale = new Map<number, SalePayment[]>();
+    for (const p of payments) {
+      const arr = paymentsBySale.get(p.sale_id) ?? [];
+      arr.push(p);
+      paymentsBySale.set(p.sale_id, arr);
+    }
+
+    // 6) Formato final para el front
+    const reportSales: ReportRow[] = sales.map((s) => {
+      const saleDetails = (detailsBySale.get(s.id) ?? []).map((d) => {
+        const qty: any = d.quantity as any;
+        const up: any = d.unit_price as any;
+        const lineTotal = (qty * up).toFixed(2);  // Calculando el total de línea
+
+        return {
+          id: d.id,
+          product_id: d.product_id,
+          article_code: d.product?.article_code ?? '',
+          article_description: d.product?.article_description ?? '',
+          product_size_id: d.product_size_id ?? null,
+          size: d.productSize?.size ?? null,
+          quantity: String(d.quantity),
+          unit_price: String(d.unit_price),
+          line_total: lineTotal,
+          series: d.product?.series?.code ?? '',
+          stock_movement_quantity: d.stockMovement?.quantity ?? 0,
+          movement_type: d.stockMovement?.movement_type ?? '',
+          movement_date: d.stockMovement?.created_at ? d.stockMovement?.created_at.toISOString() : '',
+        };
+      });
+
+      const salePayments = (paymentsBySale.get(s.id) ?? []).map((p) => ({
+        id: p.id,
+        method: p.method,
+        amount: String(p.amount),
+        operation_number: p.operation_number ?? null,
+        cash_received: p.cash_received === null ? null : String(p.cash_received),
+        cash_change: p.cash_change === null ? null : String(p.cash_change),
+        notes: p.notes ?? null,
+      }));
+
+      return {
+        sale_id: s.id,
+        sale_code: s.sale_code,
+        sale_date: s.sale_date,
+        warehouse_id: s.warehouse_id,
+        warehouse_name: s.warehouse?.warehouse_name ?? warehouse.warehouse_name ?? null,
+        user_id: s.user_id,
+        user_name: s.user?.full_name ?? '',
+        customer_id: s.customer_id ?? null,
+        total_amount: String(s.total_amount),
+        payment_method: s.payment_method ?? null,
+        details: saleDetails,
+        payments: salePayments,
+      };
+    });
+
+    // 7) Resúmenes útiles para el PDF/dashboard
+    const summaryBySellerMap = new Map<number, { user_id: number; user_name: string; total_sales: number; total_amount: number }>();
+    const summaryByPaymentMap = new Map<string, { method: string; total_amount: number; count: number }>();
+
+    let totalAmount = 0;
+
+    for (const s of reportSales) {
+      const amt = Number(s.total_amount);
+      totalAmount += isNaN(amt) ? 0 : amt;
+
+      // por vendedor
+      const prevSeller = summaryBySellerMap.get(s.user_id) ?? {
+        user_id: s.user_id,
+        user_name: s.user_name,
+        total_sales: 0,
+        total_amount: 0,
+      };
+      prevSeller.total_sales += 1;
+      prevSeller.total_amount += isNaN(amt) ? 0 : amt;
+      summaryBySellerMap.set(s.user_id, prevSeller);
+
+      // por método (si hay SalePayments, usamos eso; si no, fallback payment_method)
+      if (s.payments.length > 0) {
+        for (const p of s.payments) {
+          const m = p.method || 'unknown';
+          const a = Number(p.amount);
+          const prev = summaryByPaymentMap.get(m) ?? { method: m, total_amount: 0, count: 0 };
+          prev.total_amount += isNaN(a) ? 0 : a;
+          prev.count += 1;
+          summaryByPaymentMap.set(m, prev);
+        }
+      } else {
+        const m = s.payment_method || 'unknown';
+        const prev = summaryByPaymentMap.get(m) ?? { method: m, total_amount: 0, count: 0 };
+        prev.total_amount += isNaN(amt) ? 0 : amt;
+        prev.count += 1;
+        summaryByPaymentMap.set(m, prev);
+      }
+    }
+
     return {
       meta: {
         warehouse_id: warehouse.id,
@@ -125,174 +285,14 @@ async salesReport(dto: SalesReportQueryDto) {
         user_name: seller?.full_name ?? null,
         start,
         end,
-        total_sales: 0,
-        total_amount: 0,
+        total_sales: reportSales.length,
+        total_amount: Number(totalAmount.toFixed(2)),
       },
-      sales: [],
-      summary_by_seller: [],
-      summary_by_payment_method: [],
+      sales: reportSales,
+      summary_by_seller: Array.from(summaryBySellerMap.values()).sort((a, b) => b.total_amount - a.total_amount),
+      summary_by_payment_method: Array.from(summaryByPaymentMap.values()).sort((a, b) => b.total_amount - a.total_amount),
     };
   }
-
-  // 3) Detalles (SaleDetails) con Product, ProductSize y StockMovement
-  const details = await this.saleDetailRepo
-    .createQueryBuilder('d')
-    .leftJoinAndSelect('d.product', 'p')
-    .leftJoinAndSelect('d.productSize', 'ps')
-    .leftJoinAndSelect('p.series', 'series') // Relación con la serie del producto
-    .leftJoinAndSelect('d.stockMovement', 'sm') // Relación con StockMovement
-    .where('d.sale_id IN (:...saleIds)', { saleIds })
-    .select([
-      'd.id',
-      'd.quantity',
-      'd.unit_price',
-      'p.article_code',
-      'p.article_description',
-      'p.type_origin',
-      'p.manufacturing_cost',
-      'p.unit_price',
-      'p.brand_name',
-      'p.model_code',
-      'p.category',
-      'p.material_type',
-      'p.color',
-      'p.product_image',
-      'ps.size',
-      'series.code', // El nombre de la serie
-      'sm.quantity as stock_movement_quantity', // Cantidad de movimiento de stock
-      'sm.movement_type', // Tipo de movimiento de stock
-      'sm.reference', // Referencia del movimiento de stock
-      'sm.created_at as movement_date', // Fecha de movimiento
-    ])
-    .getMany();
-
-  // 4) Pagos (SalePayments)
-  const payments = await this.salePaymentRepo
-    .createQueryBuilder('sp')
-    .where('sp.sale_id IN (:...saleIds)', { saleIds })
-    .getMany();
-
-  // 5) Armar estructura por sale_id
-  const detailsBySale = new Map<number, SaleDetail[]>();
-  for (const d of details) {
-    const arr = detailsBySale.get(d.sale_id) ?? [];
-    arr.push(d);
-    detailsBySale.set(d.sale_id, arr);
-  }
-
-  const paymentsBySale = new Map<number, SalePayment[]>();
-  for (const p of payments) {
-    const arr = paymentsBySale.get(p.sale_id) ?? [];
-    arr.push(p);
-    paymentsBySale.set(p.sale_id, arr);
-  }
-
-  // 6) Formato final para el front
-  const reportSales: ReportRow[] = sales.map((s) => {
-    const saleDetails = (detailsBySale.get(s.id) ?? []).map((d) => {
-      const qty: any = d.quantity as any;
-      const up: any = d.unit_price as any;
-      const lineTotal = (qty * up).toFixed(2);  // Calculando el total de línea
-
-      return {
-        id: d.id,
-        product_id: d.product_id,
-        article_code: d.product?.article_code ?? '',
-        article_description: d.product?.article_description ?? '',
-        product_size_id: d.product_size_id ?? null,
-        size: d.productSize?.size ?? null,
-        quantity: String(d.quantity),
-        unit_price: String(d.unit_price),
-        line_total: lineTotal,
-        series: d.product?.series?.code ?? '',
-        stock_movement_quantity: d.stockMovement?.quantity ?? 0,
-        movement_type: d.stockMovement?.movement_type ?? '',
-        movement_date: d.stockMovement?.created_at ? d.stockMovement?.created_at.toISOString() : '',
-      };
-    });
-
-    const salePayments = (paymentsBySale.get(s.id) ?? []).map((p) => ({
-      id: p.id,
-      method: p.method,
-      amount: String(p.amount),
-      operation_number: p.operation_number ?? null,
-      cash_received: p.cash_received === null ? null : String(p.cash_received),
-      cash_change: p.cash_change === null ? null : String(p.cash_change),
-      notes: p.notes ?? null,
-    }));
-
-    return {
-      sale_id: s.id,
-      sale_code: s.sale_code,
-      sale_date: s.sale_date,
-      warehouse_id: s.warehouse_id,
-      warehouse_name: s.warehouse?.warehouse_name ?? warehouse.warehouse_name ?? null,
-      user_id: s.user_id,
-      user_name: s.user?.full_name ?? '',
-      customer_id: s.customer_id ?? null,
-      total_amount: String(s.total_amount),
-      payment_method: s.payment_method ?? null,
-      details: saleDetails,
-      payments: salePayments,
-    };
-  });
-
-  // 7) Resúmenes útiles para el PDF/dashboard
-  const summaryBySellerMap = new Map<number, { user_id: number; user_name: string; total_sales: number; total_amount: number }>();
-  const summaryByPaymentMap = new Map<string, { method: string; total_amount: number; count: number }>();
-
-  let totalAmount = 0;
-
-  for (const s of reportSales) {
-    const amt = Number(s.total_amount);
-    totalAmount += isNaN(amt) ? 0 : amt;
-
-    // por vendedor
-    const prevSeller = summaryBySellerMap.get(s.user_id) ?? {
-      user_id: s.user_id,
-      user_name: s.user_name,
-      total_sales: 0,
-      total_amount: 0,
-    };
-    prevSeller.total_sales += 1;
-    prevSeller.total_amount += isNaN(amt) ? 0 : amt;
-    summaryBySellerMap.set(s.user_id, prevSeller);
-
-    // por método (si hay SalePayments, usamos eso; si no, fallback payment_method)
-    if (s.payments.length > 0) {
-      for (const p of s.payments) {
-        const m = p.method || 'unknown';
-        const a = Number(p.amount);
-        const prev = summaryByPaymentMap.get(m) ?? { method: m, total_amount: 0, count: 0 };
-        prev.total_amount += isNaN(a) ? 0 : a;
-        prev.count += 1;
-        summaryByPaymentMap.set(m, prev);
-      }
-    } else {
-      const m = s.payment_method || 'unknown';
-      const prev = summaryByPaymentMap.get(m) ?? { method: m, total_amount: 0, count: 0 };
-      prev.total_amount += isNaN(amt) ? 0 : amt;
-      prev.count += 1;
-      summaryByPaymentMap.set(m, prev);
-    }
-  }
-
-  return {
-    meta: {
-      warehouse_id: warehouse.id,
-      warehouse_name: warehouse.warehouse_name ?? null,
-      user_id: seller?.id ?? null,
-      user_name: seller?.full_name ?? null,
-      start,
-      end,
-      total_sales: reportSales.length,
-      total_amount: Number(totalAmount.toFixed(2)),
-    },
-    sales: reportSales,
-    summary_by_seller: Array.from(summaryBySellerMap.values()).sort((a, b) => b.total_amount - a.total_amount),
-    summary_by_payment_method: Array.from(summaryByPaymentMap.values()).sort((a, b) => b.total_amount - a.total_amount),
-  };
-}
 
 
   async getCashClosureReport(dto: SalesReportQueryDto) {
@@ -490,33 +490,107 @@ async salesReport(dto: SalesReportQueryDto) {
       };
     }
 
-    // Detalles de las ventas
+    // 1) Obtener los detalles de las ventas con información del producto y precios de compra/venta
     const details = await this.saleDetailRepo
       .createQueryBuilder('d')
       .leftJoinAndSelect('d.product', 'p')
+      .leftJoinAndSelect('d.productSize', 'ps')
+      .leftJoinAndSelect('p.category', 'c')  // Obtener la categoría del producto
       .where('d.sale_id IN (:...saleIds)', { saleIds })
       .getMany();
 
-    // Obtener los gastos operativos
-    const operatingExpenses = await this.getOperatingExpenses(start, end);
+    // 2) Obtener los pagos realizados por las ventas
+    const payments = await this.salePaymentRepo
+      .createQueryBuilder('sp')
+      .where('sp.sale_id IN (:...saleIds)', { saleIds })
+      .getMany();
 
-    // Calcular el total de ventas y utilidad neta
-    const totalAmount = sales.reduce((sum, s) => sum + (typeof s.total_amount === 'string' ? parseFloat(s.total_amount) : s.total_amount), 0);
-    const netProfit = totalAmount - operatingExpenses;
+    // 3) Agrupar detalles de las ventas y pagos por sale_id
+    const detailsBySale = new Map<number, SaleDetail[]>();
+    for (const d of details) {
+      const arr = detailsBySale.get(d.sale_id) ?? [];
+      arr.push(d);
+      detailsBySale.set(d.sale_id, arr);
+    }
+
+    const paymentsBySale = new Map<number, SalePayment[]>();
+    for (const p of payments) {
+      const arr = paymentsBySale.get(p.sale_id) ?? [];
+      arr.push(p);
+      paymentsBySale.set(p.sale_id, arr);
+    }
+
+    // 4) Calcular la utilidad neta y los pagos por medios de pago (efectivo y virtual)
+    let totalAmount = 0;
+    let totalCashAmount = 0;
+    let totalVirtualAmount = 0;
+    let totalCost = 0;
+    let totalProfit = 0;
+
+    const salesDetails = sales.map((s) => {
+      const saleDetails = (detailsBySale.get(s.id) ?? []).map((d) => {
+        const qty = Number(d.quantity);
+        const unitPrice = Number(d.unit_price);
+        const purchasePrice = Number(d.product.manufacturing_cost); // Precio de compra
+        const lineTotal = (qty * unitPrice).toFixed(2);
+        const productProfit = (qty * (unitPrice - purchasePrice)).toFixed(2); // Ganancia por producto
+
+        totalAmount += Number(lineTotal);
+        totalCost += qty * purchasePrice;
+        totalProfit += Number(productProfit);
+
+        // Separar por tipo de pago
+        const paymentMethod = s.payment_method || 'unknown';
+        if (paymentMethod === 'EFFECTIVO') {
+          totalCashAmount += Number(lineTotal);
+        } else if (paymentMethod === 'YAPE' || paymentMethod === 'TARJETA DE DÉBITO') {
+          totalVirtualAmount += Number(lineTotal);
+        }
+
+        return {
+          id: d.id,
+          product_id: d.product_id,
+          article_code: d.product.article_code,
+          article_description: d.product.article_description,
+          size: d.productSize?.size ?? null,
+          quantity: String(d.quantity),
+          unit_price: String(d.unit_price),
+          purchase_price: String(purchasePrice),
+          line_total: lineTotal,
+          profit: productProfit, // Ganancia por línea de venta
+        };
+      });
+
+      return {
+        sale_id: s.id,
+        sale_code: s.sale_code,
+        sale_date: s.sale_date,
+        warehouse_id: s.warehouse_id,
+        warehouse_name: s.warehouse?.warehouse_name ?? warehouse.warehouse_name ?? null,
+        user_id: s.user_id,
+        user_name: s.user?.full_name ?? '',
+        total_amount: String(s.total_amount),
+        payment_method: s.payment_method ?? null,
+        details: saleDetails,
+      };
+    });
+
+    // 5) Calcular la utilidad neta después de los gastos operativos
+    const operatingExpenses = await this.getOperatingExpenses(start, end);
+    const netProfit = totalProfit - operatingExpenses;
 
     return {
       meta: {
-        total_sales: sales.length,
+        total_sales: salesDetails.length,
         total_amount: totalAmount,
         total_operating_expenses: operatingExpenses,
         net_profit: netProfit,
       },
-      sales: sales.map((s) => ({
-        sale_id: s.id,
-        sale_code: s.sale_code,
-        sale_date: s.sale_date,
-        total_amount: s.total_amount,
-      })),
+      sales: salesDetails,
+      total_profit: totalProfit,
+      total_cost: totalCost,
+      total_cash_amount: totalCashAmount,
+      total_virtual_amount: totalVirtualAmount,
     };
   }
 
