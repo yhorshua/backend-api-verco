@@ -76,13 +76,13 @@ export class StockService {
       const sale = await this.createSaleHeader(manager, dto, sale_code, total_amount, fechaLima);
 
       // 4) Crear detalles + movimientos + descontar stock
-      const stockMovements = await this.createDetailsAndStockOutputs(manager, dto, sale, validated);
+      const stockMovements = await this.createDetailsAndStockOutputs(manager, dto, sale, validated, fechaLima);
 
       // 5) Crear SalePayments (detalle de pago) y validar vs total real
-      const payments = await this.createSalePayments(manager, dto, sale);
+      const payments = await this.createSalePayments(manager, dto, sale, fechaLima);
 
       // 6) Crear CashMovements para arqueo (uno por cada SalePayment con amount > 0)
-      await this.createCashMovementsFromPayments(manager, sessionId, dto, sale, payments);
+      await this.createCashMovementsFromPayments(manager, sessionId, dto, sale, payments, fechaLima);
 
       return { sale, movements: stockMovements };
     });
@@ -198,7 +198,7 @@ export class StockService {
       customer_id: dto.customer_id,
       total_amount,
       payment_method: dto.payment_method,
-      sale_date,
+      sale_date: sale_date,
     });
 
     await manager.save(Sale, sale);
@@ -209,7 +209,8 @@ export class StockService {
   manager: EntityManager,
   dto: CreateSaleDto,
   sale: Sale,
-  validated: Array<{ item: any; unit_price: number }>
+  validated: Array<{ item: any; unit_price: number }>,
+  created_at: Date
 ): Promise<StockMovement[]> {
   const movements: StockMovement[] = [];
 
@@ -225,6 +226,7 @@ export class StockService {
       reference: `Venta ${sale.sale_code}`,
       user_id: dto.user_id,
       movement_date: moment().tz('America/Lima').toDate(),
+      created_at: created_at,
     });
     await manager.save(StockMovement, movement);
     movements.push(movement);
@@ -269,10 +271,10 @@ export class StockService {
     manager: EntityManager,
     dto: CreateSaleDto,
     sale: Sale,
+    created_at: Date,
   ): Promise<SalePayment[]> {
     const total = Number(sale.total_amount);
     const p: any = dto.payment || {};
-
     const payments: SalePayment[] = [];
 
     const savePayment = async (payload: Partial<SalePayment>) => {
@@ -298,6 +300,7 @@ export class StockService {
         cash_received: efectivoEntregado,
         cash_change: vuelto,
         notes: null,
+        created_at: created_at,
       });
 
       return payments;
@@ -318,6 +321,7 @@ export class StockService {
         cash_received: null,
         cash_change: null,
         notes: null,
+        created_at: created_at,
       });
 
       return payments;
@@ -407,6 +411,7 @@ export class StockService {
     dto: CreateSaleDto,
     sale: Sale,
     payments: SalePayment[],
+    created_at: Date,
   ) {
     for (const pay of payments) {
       // obsequio (amount 0) no entra a caja
@@ -427,6 +432,7 @@ export class StockService {
         reference_sale_payment_id: pay.id,
 
         description: `Venta ${sale.sale_code}`,
+        created_at: created_at,
       });
 
       await manager.save(CashMovement, cm);

@@ -12,6 +12,9 @@ export class ChangeProductDto {
 
   @IsPositive()
   quantity: number;
+
+  @IsInt()
+  new_product_size_id: number;
 }
 
 export class ReturnProductDto {
