@@ -42,74 +42,77 @@ export class SaleService {
   }
 
   // Realizar un cambio de producto
-  async changeProduct(
-    saleId: number,
-    productId: number,
-    newProductId: number,
-    quantity: number,
-  ): Promise<string> {
-    // Buscar la venta
-    const sale = await this.saleRepository.findOne({
-      where: { id: saleId },
-      relations: ['details', 'details.product'],
-    });
+ async changeProduct(
+  saleId: number,
+  productId: number,
+  newProductId: number,
+  quantity: number,
+  newProductSizeId: number,  // Recibimos el ID de la talla del nuevo producto
+): Promise<string> {
+  const sale = await this.saleRepository.findOne({
+    where: { id: saleId },
+    relations: ['details', 'details.product'],
+  });
 
-    if (!sale) {
-      throw new NotFoundException('Sale not found');
-    }
-
-    // Verifica si el producto original está en la venta
-    const saleDetail = sale.details.find((detail) => detail.product.id === productId);
-    if (!saleDetail) {
-      throw new BadRequestException('Product not found in sale');
-    }
-
-    // Verifica el stock disponible para el nuevo producto
-    const stock = await this.stockRepository.findOne({
-      where: { product_id: newProductId, warehouse_id: sale.warehouse_id },
-    });
-    if (!stock || stock.quantity < quantity) {
-      throw new BadRequestException('Insufficient stock for new product');
-    }
-
-    // Actualizar el stock del producto original (restar la cantidad)
-    saleDetail.quantity -= quantity;
-    await this.saleDetailRepository.save(saleDetail);
-
-    // Crear un nuevo detalle de venta para el producto cambiado
-    const newSaleDetail = new SaleDetail();
-    newSaleDetail.sale_id = saleId;
-    newSaleDetail.product_id = newProductId;
-    newSaleDetail.quantity = quantity;
-    newSaleDetail.unit_price = saleDetail.unit_price;
-    await this.saleDetailRepository.save(newSaleDetail);
-
-    // Actualizar el stock del nuevo producto
-    stock.quantity -= quantity;
-    await this.stockRepository.save(stock);
-
-    // Registrar el movimiento de stock (salida del producto original, entrada del nuevo)
-    const stockMovement = new StockMovement();
-    stockMovement.warehouse_id = sale.warehouse_id;
-    stockMovement.product_id = productId;
-    stockMovement.product_size_id = saleDetail.product_size_id;
-    stockMovement.quantity = -quantity; // Salida
-    stockMovement.movement_type = 'salida';
-    stockMovement.reference = `Cambio de producto de venta ${saleId}`;
-    stockMovement.user_id = sale.user_id;
-    await this.stockMovementRepository.save(stockMovement);
-
-    const newStockMovement = new StockMovement();
-    newStockMovement.warehouse_id = sale.warehouse_id;
-    newStockMovement.product_id = newProductId;
-    newStockMovement.quantity = quantity; // Entrada
-    newStockMovement.movement_type = 'entrada';
-    newStockMovement.reference = `Cambio de producto a venta ${saleId}`;
-    newStockMovement.user_id = sale.user_id;
-    await this.stockMovementRepository.save(newStockMovement);
-
-    return 'Product successfully changed';
+  if (!sale) {
+    throw new NotFoundException('Sale not found');
   }
+
+  const saleDetail = sale.details.find((detail) => detail.product.id === productId);
+  if (!saleDetail) {
+    throw new BadRequestException('Product not found in sale');
+  }
+
+  // Verificamos el stock del nuevo producto con la talla seleccionada
+  const stock = await this.stockRepository.findOne({
+    where: { product_id: newProductId, warehouse_id: sale.warehouse_id, product_size_id: newProductSizeId }, // Usamos product_size_id
+  });
+
+  if (!stock || stock.quantity < quantity) {
+    throw new BadRequestException('Insufficient stock for new product');
+  }
+
+  // Actualizar el stock del producto original (restar la cantidad)
+  saleDetail.quantity -= quantity;
+  await this.saleDetailRepository.save(saleDetail);
+
+  // Crear un nuevo detalle de venta para el producto cambiado, con la talla seleccionada
+  const newSaleDetail = new SaleDetail();
+  newSaleDetail.sale_id = saleId;
+  newSaleDetail.product_id = newProductId;
+  newSaleDetail.product_size_id = newProductSizeId;  // Guardamos el ID de la talla seleccionada
+  newSaleDetail.quantity = quantity;
+  newSaleDetail.unit_price = saleDetail.unit_price;
+  await this.saleDetailRepository.save(newSaleDetail);
+
+  // Actualizar el stock del nuevo producto con la talla
+  stock.quantity -= quantity;
+  await this.stockRepository.save(stock);
+
+  // Registrar el movimiento de stock para el producto original
+  const stockMovement = new StockMovement();
+  stockMovement.warehouse_id = sale.warehouse_id;
+  stockMovement.product_id = productId;
+  stockMovement.product_size_id = saleDetail.product_size_id;
+  stockMovement.quantity = -quantity;
+  stockMovement.movement_type = 'salida';
+  stockMovement.reference = `Cambio de producto de venta ${saleId}`;
+  stockMovement.user_id = sale.user_id;
+  await this.stockMovementRepository.save(stockMovement);
+
+  // Registrar el movimiento de stock para el nuevo producto
+  const newStockMovement = new StockMovement();
+  newStockMovement.warehouse_id = sale.warehouse_id;
+  newStockMovement.product_id = newProductId;
+  newStockMovement.product_size_id = newProductSizeId;  // Usamos el ID de la talla
+  newStockMovement.quantity = quantity;
+  newStockMovement.movement_type = 'entrada';
+  newStockMovement.reference = `Cambio de producto a venta ${saleId}`;
+  newStockMovement.user_id = sale.user_id;
+  await this.stockMovementRepository.save(newStockMovement);
+
+  return 'Product successfully changed';
+}
 
   // Realizar una devolución de producto
   async returnProduct(

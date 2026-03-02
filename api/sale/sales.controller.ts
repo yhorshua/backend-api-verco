@@ -17,8 +17,8 @@ export class SaleController {
   async changeProduct(
     @Body() changeProductDto: ChangeProductDto,  // Usamos el DTO para recibir los datos
   ) {
-    const { sale_id, product_id, new_product_id, quantity } = changeProductDto;
-    return this.saleService.changeProduct(sale_id, product_id, new_product_id, quantity);
+    const { sale_id, product_id, new_product_id, quantity, new_product_size_id } = changeProductDto;
+    return this.saleService.changeProduct(sale_id, product_id, new_product_id, quantity, new_product_size_id);
   }
 
   // Devolución de producto
