@@ -14,19 +14,31 @@ export class SaleController {
 
   // Cambio de producto
   @Post('change-product')
-  async changeProduct(
-    @Body() changeProductDto: ChangeProductDto,  // Usamos el DTO para recibir los datos
-  ) {
-    const { sale_id, product_id, new_product_id, quantity, new_product_size_id } = changeProductDto;
-    return this.saleService.changeProduct(sale_id, product_id, new_product_id, quantity, new_product_size_id);
+  async changeProduct(@Body() dto: ChangeProductDto) {
+
+    return this.saleService.changeProduct(
+      dto.sale_id,
+      dto.product_id,
+      dto.new_product_id,
+      dto.quantity,
+      dto.new_product_size_id,
+      dto.old_product_price,
+      dto.new_product_price
+    );
+
   }
 
   // Devolución de producto
   @Post('return-product')
-  async returnProduct(
-    @Body() returnProductDto: ReturnProductDto,  // Usamos el DTO para recibir los datos
-  ) {
-    const { sale_id, product_id, quantity } = returnProductDto;
-    return this.saleService.returnProduct(sale_id, product_id, quantity);
+  async returnProduct(@Body() dto: ReturnProductDto) {
+
+    return this.saleService.returnProduct(
+      dto.sale_id,
+      dto.product_id,
+      dto.quantity,
+      dto.price_at_return,
+      dto.reason
+    );
+
   }
 }

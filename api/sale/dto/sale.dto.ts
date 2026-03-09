@@ -1,29 +1,48 @@
-import { IsInt, IsPositive, IsOptional } from 'class-validator';
+import { IsInt, IsPositive, IsOptional, IsString } from 'class-validator';
+
+import { IsNumber } from 'class-validator';
 
 export class ChangeProductDto {
-  @IsInt()
+
+  @IsNumber()
   sale_id: number;
 
-  @IsInt()
+  @IsNumber()
   product_id: number;
 
-  @IsInt()
+  @IsNumber()
   new_product_id: number;
 
-  @IsPositive()
+  @IsNumber()
+  new_product_size_id: number;
+
+  @IsNumber()
   quantity: number;
 
-  @IsInt()
-  new_product_size_id: number;
+  @IsNumber()
+  old_product_price: number;
+
+  @IsNumber()
+  new_product_price: number;
+
 }
 
 export class ReturnProductDto {
-  @IsInt()
+
+  @IsNumber()
   sale_id: number;
 
-  @IsInt()
+  @IsNumber()
   product_id: number;
 
-  @IsPositive()
+  @IsNumber()
   quantity: number;
+
+  @IsNumber()
+  price_at_return: number;
+
+  @IsOptional()
+  @IsString()
+  reason?: string;
+
 }
