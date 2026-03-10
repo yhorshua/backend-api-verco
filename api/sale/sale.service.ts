@@ -187,6 +187,8 @@ export class SaleService {
     stockMovement.user_id = sale.user_id;
     await this.stockMovementRepository.save(stockMovement);
 
-    return 'Product devuelto correctamente';
+    return {
+      message:'Product devuelto correctamente'
+    };
   }
 }
