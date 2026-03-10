@@ -151,42 +151,59 @@ export class ProductsService {
   }
 
   async findProductsWithSizes(): Promise<any[]> {
-    // Realiza la consulta básica
-    const products = await this.productRepo
-      .createQueryBuilder('product')
-      .leftJoinAndSelect('product.sizes', 'sizes')
-      .leftJoinAndSelect('product.series', 'series')
-      .leftJoinAndSelect('product.category', 'category')
-      .leftJoinAndSelect('sizes.stock', 'stock')
-      .where('product.id IS NOT NULL')  // Filtrar productos con id no nulo
-      .andWhere('product.series.code IS NOT NULL')  // Filtrar productos sin serie válida
-      .getMany();
+  const products = await this.productRepo
+    .createQueryBuilder('product')
+    .leftJoinAndSelect('product.sizes', 'sizes')
+    .leftJoinAndSelect('product.series', 'series')
+    .leftJoinAndSelect('product.category', 'category')
+    .leftJoinAndSelect('sizes.stock', 'stock')
+    .where('product.id IS NOT NULL')
+    .andWhere('series.code IS NOT NULL')
+    .getMany();
 
-    // Procesa los productos y filtra cualquier producto que tenga valores inválidos
-    const validProducts = products.filter(product => {
-      // Verifica que el producto tenga un ID y serie válida
-      return product.id && product.series && product.series.code;
-    });
+  return products.map(product => {
 
-    return validProducts.map(product => {
-      const seriesCode = product.series.code;
-      const productDescription = product.article_description;
-
-      // Creamos un objeto para cada producto con las tallas y el ID
-      const sizesMap = product.sizes.reduce((acc, size) => {
-        acc[size.size] = size.id;  // El ID de la talla correspondiente
-        return acc;
-      }, {});
-
-      return {
-        product_id: product.id,
-        series_id: seriesCode,
-        article_code: product.article_code,
-        article_description: productDescription,
-        sizes: sizesMap,  // Mapa de tallas con su respectivo ID
+    const sizesMap = product.sizes.reduce((acc, size) => {
+      acc[size.size] = {
+        size_id: size.id,
+        size: size.size
       };
-    });
-  }
+      return acc;
+    }, {});
+
+    return {
+      product_id: product.id,
+
+      article_code: product.article_code,
+      article_description: product.article_description,
+      article_series: product.article_series,
+      type_origin: product.type_origin,
+
+      manufacturing_cost: product.manufacturing_cost,
+      unit_price: product.unit_price,
+
+      brand_name: product.brand_name,
+      model_code: product.model_code,
+      material_type: product.material_type,
+      color: product.color,
+
+      // serie
+      series: {
+        code: product.series?.code,
+        name: product.series?.description_serie
+      },
+
+      // categoría
+      category: {
+        id: product.category?.id,
+        name: product.category?.name
+      },
+
+      // tallas
+      sizes: sizesMap
+    };
+  });
+}
 
   // Método para consultar por código o descripción
   async findByCode(query: string): Promise<any> {
