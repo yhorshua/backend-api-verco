@@ -28,10 +28,18 @@ export class SaleService {
   ) { }
 
   // Buscar la venta por código
-  async findSaleByCode(saleCode: string): Promise<Sale> {
+  async findSaleByCode(saleCode: string, warehouseId: number): Promise<Sale> {
     const sale = await this.saleRepository.findOne({
-      where: { sale_code: saleCode },
-      relations: ['details', 'details.product', 'details.productSize'],
+      where: {
+        sale_code: saleCode,
+        warehouse: { id: warehouseId }
+      },
+      relations: [
+        'warehouse',
+        'details',
+        'details.product',
+        'details.productSize'
+      ],
     });
 
     if (!sale) {

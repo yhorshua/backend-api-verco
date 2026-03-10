@@ -1,10 +1,10 @@
-import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn, OneToMany } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn, OneToMany, Index } from 'typeorm';
 import { Warehouse } from './warehouse.entity';
 import { User } from './user.entity';
 import { SaleDetail } from './sale-detail.entity';
 import { SalePayment } from './sale-payments.entity';
 
-
+@Index(['sale_code', 'warehouse'], { unique: true })
 @Entity('Sales')
 export class Sale {
   @PrimaryGeneratedColumn()

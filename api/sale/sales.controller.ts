@@ -7,10 +7,13 @@ export class SaleController {
   constructor(private readonly saleService: SaleService) {}
 
   // Buscar venta por código
-  @Get(':saleCode')
-  async getSaleByCode(@Param('saleCode') saleCode: string) {
-    return this.saleService.findSaleByCode(saleCode);
-  }
+@Get(':saleCode/:warehouseId')
+async getSaleByCode(
+  @Param('saleCode') saleCode: string,
+  @Param('warehouseId') warehouseId: number
+) {
+  return this.saleService.findSaleByCode(saleCode, warehouseId);
+}
 
   // Cambio de producto
   @Post('change-product')
