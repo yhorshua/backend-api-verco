@@ -3,6 +3,7 @@ import { Warehouse } from './warehouse.entity';
 import { User } from './user.entity';
 import { SaleDetail } from './sale-detail.entity';
 import { SalePayment } from './sale-payments.entity';
+import { SaleReturn } from './sale-return.entity';
 
 @Index(['sale_code', 'warehouse'], { unique: true })
 @Entity('Sales')
@@ -46,5 +47,15 @@ export class Sale {
 
   @OneToMany(() => SalePayment, (p) => p.sale)
   payments: SalePayment[];
+
+  @Column({
+    type: 'enum',
+    enum: ['completed', 'partial_return', 'returned'],
+    default: 'completed'
+  })
+  status: string;
+
+  @OneToMany(() => SaleReturn, r => r.sale)
+  returns: SaleReturn[];
 
 }

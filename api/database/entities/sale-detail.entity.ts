@@ -1,8 +1,9 @@
-import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn, OneToMany } from 'typeorm';
 import { Sale } from './sale.entity';
 import { Product } from './product.entity';
 import { ProductSize } from './product-size.entity';
 import { StockMovement } from './stock-movements';
+import { SaleReturn } from './sale-return.entity';
 
 @Entity('SaleDetails')
 export class SaleDetail {
@@ -40,4 +41,7 @@ export class SaleDetail {
   @ManyToOne(() => StockMovement, { nullable: true })
   @JoinColumn({ name: 'stock_movement_id' })
   stockMovement: StockMovement | null;
+
+  @OneToMany(() => SaleReturn, r => r.saleDetail)
+  returns: SaleReturn[];
 }

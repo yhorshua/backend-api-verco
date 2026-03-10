@@ -7,6 +7,10 @@ import { Stock } from '../database/entities/stock.entity';
 import { StockMovement } from '../database/entities/stock-movements';
 import { SalePayment } from '../database/entities/sale-payments.entity';
 import { Product } from '../database/entities/product.entity';
+import { SaleReturn } from 'api/database/entities/sale-return.entity';
+import { CashMovement } from 'api/database/entities/cash-movement.entity';
+import { CashRegisterSession } from 'api/database/entities/cash-register-session.entity';
+import { DataSource } from 'typeorm';
 
 @Injectable()
 export class SaleService {
@@ -25,6 +29,11 @@ export class SaleService {
 
     @InjectRepository(Product)
     private readonly productRepository: Repository<Product>,
+
+    @InjectRepository(SaleReturn)
+    private readonly saleReturnRepository: Repository<SaleReturn>,
+
+    private readonly dataSource: DataSource,
   ) { }
 
   // Buscar la venta por código
@@ -138,57 +147,142 @@ export class SaleService {
     warehouseId: number,
     reason?: string
   ): Promise<any> {
-    // Buscar la venta
-    const sale = await this.saleRepository.findOne({
-      where: {
-        id: saleId,
-        warehouse: { id: warehouseId },
-      },
-      relations: ['details', 'details.product', 'warehouse'],
+
+    return this.dataSource.transaction(async (manager) => {
+
+      // 1️⃣ Buscar la venta
+      const sale = await manager.findOne(Sale, {
+        where: {
+          id: saleId,
+          warehouse: { id: warehouseId },
+        },
+        relations: ['details', 'details.product', 'warehouse'],
+      });
+
+      if (!sale) {
+        throw new NotFoundException('Venta no encontrada');
+      }
+
+      // 2️⃣ Buscar detalle del producto
+      const saleDetail = sale.details.find(
+        (detail) => detail.product.id === productId
+      );
+
+      if (!saleDetail) {
+        throw new BadRequestException('Producto no encontrado en la venta');
+      }
+
+      // 3️⃣ Validar cantidad
+      if (quantity > saleDetail.quantity) {
+        throw new BadRequestException(
+          'La cantidad a devolver es mayor que la vendida'
+        );
+      }
+
+      // 4️⃣ Buscar stock
+      const stock = await manager.findOne(Stock, {
+        where: {
+          product_id: productId,
+          warehouse_id: warehouseId,
+        },
+      });
+
+      if (!stock) {
+        throw new NotFoundException('Stock no encontrado');
+      }
+
+      // 5️⃣ DEVOLVER AL STOCK
+      stock.quantity += quantity;
+      await manager.save(stock);
+
+      // 6️⃣ ACTUALIZAR DETALLE DE VENTA
+      saleDetail.quantity -= quantity;
+
+      if (saleDetail.quantity <= 0) {
+        await manager.remove(SaleDetail, saleDetail);
+      } else {
+        await manager.save(SaleDetail, saleDetail);
+      }
+
+      // 7️⃣ REGISTRAR MOVIMIENTO DE STOCK
+      const stockMovement = manager.create(StockMovement, {
+        warehouse_id: warehouseId,
+        product_id: productId,
+        quantity: quantity,
+        movement_type: 'entrada',
+        reference: `Devolución de venta ${sale.sale_code}`,
+        user_id: sale.user_id,
+      });
+
+      await manager.save(stockMovement);
+
+      // 8️⃣ CALCULAR MONTO DE DEVOLUCIÓN
+      const totalRefund = Number((priceAtReturn * quantity).toFixed(2));
+
+      // 9️⃣ REGISTRAR DEVOLUCIÓN EN TABLA SaleReturns
+      const saleReturn = manager.create(SaleReturn, {
+        sale_id: sale.id,
+        sale_detail_id: saleDetail.id,
+        product_id: productId,
+        warehouse_id: warehouseId,
+        user_id: sale.user_id,
+
+        quantity: quantity,
+        unit_price: priceAtReturn,
+        total_refund: totalRefund,
+
+        reason: reason || undefined,
+      });
+
+      await this.saleReturnRepository.save(saleReturn);
+
+      // 🔟 BUSCAR CAJA ABIERTA
+      const session = await manager.findOne(CashRegisterSession, {
+        where: {
+          warehouse_id: warehouseId,
+          status: 'OPEN',
+        },
+        order: { opened_at: 'DESC' },
+      });
+
+      if (!session) {
+        throw new BadRequestException('No hay caja abierta');
+      }
+
+      // 1️⃣1️⃣ REGISTRAR DEVOLUCIÓN EN CAJA
+      const cashMovement = manager.create(CashMovement, {
+        session_id: session.id,
+        warehouse_id: warehouseId,
+        user_id: sale.user_id,
+
+        type: 'RETURN',
+        payment_method: sale.payment_method || 'efectivo',
+
+        amount: -totalRefund,
+
+        reference_sale_id: sale.id,
+        description: `Devolución venta ${sale.sale_code}`,
+      });
+
+      await manager.save(cashMovement);
+
+      // 1️⃣2️⃣ VERIFICAR SI QUEDAN PRODUCTOS EN LA VENTA
+      const remainingDetails = await manager.count(SaleDetail, {
+        where: { sale_id: sale.id },
+      });
+
+      if (remainingDetails === 0) {
+        sale.status = 'returned';
+      } else {
+        sale.status = 'partial_return';
+      }
+
+      await manager.save(sale);
+
+      return {
+        message: 'Producto devuelto correctamente',
+        refundAmount: totalRefund,
+      };
     });
-
-    if (!sale) {
-      throw new NotFoundException('Venta no encontrada');
-    }
-
-    // Verifica si el producto está en la venta
-    const saleDetail = sale.details.find((detail) => detail.product.id === productId);
-    if (!saleDetail) {
-      throw new BadRequestException('Producto no encontrado en la venta');
-    }
-
-    // Actualizar el stock (devuelve el producto)
-    const stock = await this.stockRepository.findOne({
-      where: { product_id: productId, warehouse_id: sale.warehouse_id },
-    });
-
-    if (!stock) {
-      throw new NotFoundException('Stock not found');
-    }
-
-    stock.quantity += quantity;
-    await this.stockRepository.save(stock);
-
-    // Actualizar la venta (reduce la cantidad del producto vendido)
-     if (saleDetail.quantity <= 0) {
-      await this.saleDetailRepository.remove(saleDetail);
-    } else {
-      saleDetail.unit_price = priceAtReturn;
-      await this.saleDetailRepository.save(saleDetail);
-    }
-
-    // Registrar el movimiento de stock (entrada del producto devuelto)
-    const stockMovement = new StockMovement();
-    stockMovement.warehouse_id = sale.warehouse_id;
-    stockMovement.product_id = productId;
-    stockMovement.quantity = quantity; // Entrada
-    stockMovement.movement_type = 'entrada';
-    stockMovement.reference = `Devolución de producto de venta ${saleId}`;
-    stockMovement.user_id = sale.user_id;
-    await this.stockMovementRepository.save(stockMovement);
-
-    return {
-      message:'Product devuelto correctamente'
-    };
   }
 }

@@ -9,6 +9,8 @@ import { StockMovement } from '../database/entities/stock-movements';
 import { Product } from '../database/entities/product.entity';
 import { Warehouse } from '../database/entities/warehouse.entity';
 import { User } from '../database/entities/user.entity';
+import { SaleReturn } from 'api/database/entities/sale-return.entity';
+import { CashMovement } from 'api/database/entities/cash-movement.entity';
 
 @Module({
   imports: [
@@ -20,6 +22,8 @@ import { User } from '../database/entities/user.entity';
       Product, // Productos
       Warehouse, // Almacenes
       User, // Usuarios
+      SaleReturn, // Devoluciones de ventas
+      CashMovement, // Movimientos de caja relacionados con ventas
     ]),
   ],
   controllers: [SaleController], // Controlador de ventas

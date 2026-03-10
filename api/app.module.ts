@@ -44,6 +44,7 @@ import { Category } from './database/entities/categories.entity';
 import { Attendance } from './database/entities/marcacion.entity';
 import { AttendanceModule } from './markAttendance/markAttendance.module';
 import { SaleModule } from './sale/sales.module';
+import { SaleReturn } from './database/entities/sale-return.entity';
 
 @Module({
   imports: [
@@ -87,6 +88,7 @@ import { SaleModule } from './sale/sales.module';
         Escaneo,
         Category,
         Attendance,
+        SaleReturn,
       ],
     }),
 
