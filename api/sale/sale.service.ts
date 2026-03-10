@@ -148,13 +148,13 @@ export class SaleService {
     });
 
     if (!sale) {
-      throw new NotFoundException('Sale not found');
+      throw new NotFoundException('Venta no encontrada');
     }
 
     // Verifica si el producto está en la venta
     const saleDetail = sale.details.find((detail) => detail.product.id === productId);
     if (!saleDetail) {
-      throw new BadRequestException('Product not found in sale');
+      throw new BadRequestException('Producto no encontrado en la venta');
     }
 
     // Actualizar el stock (devuelve el producto)
@@ -187,6 +187,6 @@ export class SaleService {
     stockMovement.user_id = sale.user_id;
     await this.stockMovementRepository.save(stockMovement);
 
-    return 'Product successfully returned';
+    return 'Product devuelto correctamente';
   }
 }
