@@ -40,6 +40,7 @@ async getSaleByCode(
       dto.product_id,
       dto.quantity,
       dto.price_at_return,
+      dto.warehouse_id,
       dto.reason
     );
 

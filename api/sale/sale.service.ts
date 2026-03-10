@@ -135,12 +135,16 @@ export class SaleService {
     productId: number,
     quantity: number,
     priceAtReturn: number,
+    warehouseId: number,
     reason?: string
   ): Promise<any> {
     // Buscar la venta
     const sale = await this.saleRepository.findOne({
-      where: { id: saleId },
-      relations: ['details'],
+      where: {
+        id: saleId,
+        warehouse: { id: warehouseId },
+      },
+      relations: ['details', 'details.product', 'warehouse'],
     });
 
     if (!sale) {
@@ -166,9 +170,12 @@ export class SaleService {
     await this.stockRepository.save(stock);
 
     // Actualizar la venta (reduce la cantidad del producto vendido)
-    saleDetail.quantity -= quantity;
-    saleDetail.unit_price = priceAtReturn;
-    await this.saleDetailRepository.save(saleDetail);
+     if (saleDetail.quantity <= 0) {
+      await this.saleDetailRepository.remove(saleDetail);
+    } else {
+      saleDetail.unit_price = priceAtReturn;
+      await this.saleDetailRepository.save(saleDetail);
+    }
 
     // Registrar el movimiento de stock (entrada del producto devuelto)
     const stockMovement = new StockMovement();

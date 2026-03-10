@@ -41,6 +41,9 @@ export class ReturnProductDto {
   @IsNumber()
   price_at_return: number;
 
+  @IsNumber()
+  warehouse_id: number;
+
   @IsOptional()
   @IsString()
   reason?: string;
