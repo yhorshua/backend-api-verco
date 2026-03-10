@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, Repository } from 'typeorm';
 
@@ -10,6 +10,7 @@ import { User } from '../database/entities/user.entity';
 
 import { SalesReportQueryDto } from './dto/sales-report.query.dto';
 import { CashMovement } from 'api/database/entities/cash-movement.entity';
+import { CashRegisterSession } from 'api/database/entities/cash-register-session.entity';
 
 type ReportRow = {
   sale_id: number;
@@ -64,6 +65,7 @@ export class ReportsService {
     @InjectRepository(CashMovement) private readonly cashMovementRepo: Repository<CashMovement>, // Asumimos que CashMovement contiene los gastos operativos
     @InjectRepository(Warehouse) private readonly warehouseRepo: Repository<Warehouse>,
     @InjectRepository(User) private readonly userRepo: Repository<User>,
+    @InjectRepository(CashRegisterSession) private readonly cashRegisterSessionRepo: Repository<CashRegisterSession>,
   ) { }
 
   private buildRange(dto: SalesReportQueryDto): { start: Date; end: Date } {
@@ -656,4 +658,193 @@ export class ReportsService {
     };
   }
 
+  async getDailyCashClosure(date: string, warehouseId: number) {
+
+    const start = new Date(date + 'T00:00:00');
+    const end = new Date(date + 'T23:59:59');
+
+    const session = await this.cashRegisterSessionRepo.findOne({
+      where: {
+        warehouse_id: warehouseId,
+        closed_at: Between(start, end),
+      },
+    });
+
+    if (!session) {
+      throw new NotFoundException('No existe sesión de caja ese día');
+    }
+
+    const movements = await this.cashMovementRepo.find({
+      where: { session_id: session.id },
+    });
+
+    let salesCash = 0;
+    let salesYape = 0;
+    let salesCard = 0;
+    let income = 0;
+    let expense = 0;
+    let returns = 0;
+
+    for (const m of movements) {
+
+      const amount = Number(m.amount);
+
+      if (m.type === 'SALE') {
+
+        if (m.payment_method === 'efectivo') {
+          salesCash += amount;
+        }
+
+        if (m.payment_method === 'yape') {
+          salesYape += amount;
+        }
+
+        if (m.payment_method === 'tarjeta') {
+          salesCard += amount;
+        }
+
+      }
+
+      if (m.type === 'INCOME') {
+        income += amount;
+      }
+
+      if (m.type === 'EXPENSE') {
+        expense += Math.abs(amount);
+      }
+
+      if (m.type === 'RETURN') {
+        returns += Math.abs(amount);
+      }
+
+    }
+
+    const expectedCash =
+      Number(session.opening_cash) +
+      salesCash +
+      income -
+      expense -
+      returns;
+
+    return {
+      date,
+      warehouse_id: warehouseId,
+      session_id: session.id,
+
+      opening_cash: session.opening_cash,
+
+      sales: {
+        cash: salesCash,
+        yape: salesYape,
+        card: salesCard,
+      },
+
+      income,
+      expense,
+      returns,
+
+      expected_cash: expectedCash,
+      counted_cash: session.closing_cash_counted,
+      difference: session.difference,
+    };
+  }
+
+  async getCashClosureRange(dto: SalesReportQueryDto) {
+
+    const { start, end } = this.buildRange(dto);
+
+    const sessions = await this.cashRegisterSessionRepo.find({
+      where: {
+        warehouse_id: dto.warehouseId,
+        closed_at: Between(start, end),
+      },
+      order: {
+        closed_at: 'ASC',
+      },
+    });
+
+    if (!sessions.length) {
+      return {
+        meta: {
+          warehouse_id: dto.warehouseId,
+          start,
+          end,
+          total_days: 0,
+        },
+        days: [],
+      };
+    }
+
+    const report: Array<{
+      date: string;
+      opening_cash: number;
+      sales_cash: number;
+      income: number;
+      expense: number;
+      returns: number;
+      expected_cash: number;
+      counted_cash: number;
+      difference: number;
+    }> = [];
+
+    for (const session of sessions) {
+
+      const movements = await this.cashMovementRepo.find({
+        where: { session_id: session.id },
+      });
+
+      let salesCash = 0;
+      let income = 0;
+      let expense = 0;
+      let returns = 0;
+
+      for (const m of movements) {
+
+        const amount = Number(m.amount);
+
+        if (m.type === 'SALE' && m.payment_method === 'efectivo') {
+          salesCash += amount;
+        }
+
+        if (m.type === 'INCOME') {
+          income += amount;
+        }
+
+        if (m.type === 'EXPENSE') {
+          expense += Math.abs(amount);
+        }
+
+        if (m.type === 'RETURN') {
+          returns += Math.abs(amount);
+        }
+
+      }
+
+      report.push({
+        date: session.opened_at.toISOString().split('T')[0],
+
+        opening_cash: Number(session.opening_cash),
+
+        sales_cash: salesCash,
+        income,
+        expense,
+        returns,
+
+        expected_cash: Number(session.closing_expected_cash ?? 0),
+        counted_cash: Number(session.closing_cash_counted ?? 0),
+        difference: Number(session.difference ?? 0),
+      });
+    }
+
+    return {
+      meta: {
+        warehouse_id: dto.warehouseId,
+        start,
+        end,
+        total_days: report.length,
+      },
+      days: report,
+    };
+  }
 }
+

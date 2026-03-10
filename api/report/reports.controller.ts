@@ -43,4 +43,19 @@ export class ReportsController {
   async getSellerCommissionReport(@Query() query: SalesReportQueryDto) {
     return this.reportsService.getSellerCommissionReport(query);
   }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('cash/daily')
+  getDailyCashReport(
+    @Query('date') date: string,
+    @Query('warehouseId') warehouseId: number,
+  ) {
+    return this.reportsService.getDailyCashClosure(date, warehouseId);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('cash/range')
+  getCashClosureRange(@Query() dto: SalesReportQueryDto) {
+    return this.reportsService.getCashClosureRange(dto);
+  }
 }

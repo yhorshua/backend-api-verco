@@ -1,8 +1,9 @@
-import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn, OneToMany } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn, OneToMany, Index } from 'typeorm';
 import { Warehouse } from './warehouse.entity';
 import { User } from './user.entity';
 import { CashMovement } from './cash-movement.entity';
 
+@Index(['warehouse_id', 'status'])
 @Entity('CashRegisterSessions')
 export class CashRegisterSession {
   @PrimaryGeneratedColumn()

@@ -11,9 +11,10 @@ import { Warehouse } from '../database/entities/warehouse.entity';
 import { User } from '../database/entities/user.entity';
 import { CashMovement } from 'api/database/entities/cash-movement.entity';
 import { CashMovementController } from './cashmovement.controller';
+import { CashRegisterSession } from 'api/database/entities/cash-register-session.entity';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Sale, SaleDetail, SalePayment, Warehouse, User, CashMovement])],
+  imports: [TypeOrmModule.forFeature([Sale, SaleDetail, SalePayment, Warehouse, User, CashMovement, CashRegisterSession])],
   controllers: [ReportsController, CashMovementController],
   providers: [ReportsService],
 })
