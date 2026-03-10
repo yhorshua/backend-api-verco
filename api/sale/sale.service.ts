@@ -126,7 +126,7 @@ export class SaleService {
 
     await this.stockMovementRepository.save(stockIn);
 
-    return 'Product successfully changed';
+    return 'Product cambiado satisfactoriamente';
   }
 
   // Realizar una devolución de producto
