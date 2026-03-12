@@ -58,4 +58,14 @@ export class ReportsController {
   getCashClosureRange(@Query() dto: SalesReportQueryDto) {
     return this.reportsService.getCashClosureRange(dto);
   }
+
+    // ================================
+  // NUEVO REPORTE DETALLADO
+  // PARA COMISIONES
+  // ================================
+  @UseGuards(JwtAuthGuard)
+  @Get('seller-sales-detail')
+  getSellerSalesDetailReport(@Query() query: SalesReportQueryDto) {
+    return this.reportsService.getSellerSalesDetailReport(query);
+  }
 }
