@@ -25,6 +25,7 @@ async getSaleByCode(
       dto.new_product_id,
       dto.quantity,
       dto.new_product_size_id,
+      dto.old_product_size_id,
       dto.old_product_price,
       dto.new_product_price
     );

@@ -62,12 +62,14 @@ export class SaleService {
   async changeProduct(
     saleId: number,
     productId: number,
+    oldProductSizeId: number,
     newProductId: number,
     quantity: number,
     newProductSizeId: number,
     oldProductPrice: number,
     newProductPrice: number
   ): Promise<string> {
+
     const sale = await this.saleRepository.findOne({
       where: { id: saleId },
       relations: ['details', 'details.product'],
@@ -77,65 +79,94 @@ export class SaleService {
       throw new NotFoundException('Sale not found');
     }
 
-    const saleDetail = sale.details.find((detail) => detail.product.id === productId);
+    const saleDetail = sale.details.find(
+      (detail) =>
+        detail.product_id === productId &&
+        detail.product_size_id === oldProductSizeId
+    );
+
     if (!saleDetail) {
       throw new BadRequestException('Product not found in sale');
     }
 
-    // Verificamos el stock del nuevo producto con la talla seleccionada
+    /** BUSCAR STOCK NUEVO PRODUCTO */
     const stock = await this.stockRepository.findOne({
-      where: { product_id: newProductId, warehouse_id: sale.warehouse_id, product_size_id: newProductSizeId }, // Usamos product_size_id
+      where: {
+        product_id: newProductId,
+        warehouse_id: sale.warehouse_id,
+        product_size_id: newProductSizeId,
+      },
     });
 
     if (!stock || stock.quantity < quantity) {
       throw new BadRequestException('Insufficient stock for new product');
     }
 
-    // Actualizar el stock del producto original (restar la cantidad)
-    saleDetail.quantity -= quantity;
-    saleDetail.unit_price = oldProductPrice;
-    await this.saleDetailRepository.save(saleDetail);
+    /** DEVOLVER STOCK DEL PRODUCTO ORIGINAL */
+    const stockReturn = await this.stockRepository.findOne({
+      where: {
+        product_id: productId,
+        warehouse_id: sale.warehouse_id,
+        product_size_id: oldProductSizeId,
+      },
+    });
 
-    // Crear un nuevo detalle de venta para el producto cambiado, con la talla seleccionada
+    if (stockReturn) {
+      stockReturn.quantity += quantity;
+      await this.stockRepository.save(stockReturn);
+    }
+
+    /** ACTUALIZAR DETALLE ORIGINAL */
+    saleDetail.quantity -= quantity;
+
+    if (saleDetail.quantity <= 0) {
+      await this.saleDetailRepository.remove(saleDetail);
+    } else {
+      await this.saleDetailRepository.save(saleDetail);
+    }
+
+    /** CREAR NUEVO DETALLE */
     const newSaleDetail = new SaleDetail();
+
     newSaleDetail.sale_id = saleId;
     newSaleDetail.product_id = newProductId;
-    newSaleDetail.product_size_id = newProductSizeId;  // Guardamos el ID de la talla seleccionada
+    newSaleDetail.product_size_id = newProductSizeId;
     newSaleDetail.quantity = quantity;
-    newSaleDetail.unit_price = saleDetail.unit_price;
+    newSaleDetail.unit_price = newProductPrice;
+
     await this.saleDetailRepository.save(newSaleDetail);
 
-    // Actualizar el stock del nuevo producto con la talla
+    /** DESCONTAR STOCK DEL PRODUCTO NUEVO */
     stock.quantity -= quantity;
     await this.stockRepository.save(stock);
 
-    // Registrar el movimiento de stock para el producto original
-    const stockOut = new StockMovement();
-
-    stockOut.warehouse_id = sale.warehouse_id;
-    stockOut.product_id = productId;
-    stockOut.product_size_id = saleDetail.product_size_id;
-    stockOut.quantity = -quantity;
-    stockOut.movement_type = 'salida';
-    stockOut.reference = `Cambio de producto venta ${saleId}`;
-    stockOut.user_id = sale.user_id;
-
-    await this.stockMovementRepository.save(stockOut);
-
-    // Registrar el movimiento de stock para el nuevo producto
+    /** MOVIMIENTO STOCK DEVOLUCIÓN */
     const stockIn = new StockMovement();
 
     stockIn.warehouse_id = sale.warehouse_id;
-    stockIn.product_id = newProductId;
-    stockIn.product_size_id = newProductSizeId;
+    stockIn.product_id = productId;
+    stockIn.product_size_id = oldProductSizeId;
     stockIn.quantity = quantity;
     stockIn.movement_type = 'entrada';
-    stockIn.reference = `Cambio producto venta ${saleId}`;
+    stockIn.reference = `Devolución producto venta ${saleId}`;
     stockIn.user_id = sale.user_id;
 
     await this.stockMovementRepository.save(stockIn);
 
-    return 'Product cambiado satisfactoriamente';
+    /** MOVIMIENTO STOCK NUEVO PRODUCTO */
+    const stockOut = new StockMovement();
+
+    stockOut.warehouse_id = sale.warehouse_id;
+    stockOut.product_id = newProductId;
+    stockOut.product_size_id = newProductSizeId;
+    stockOut.quantity = -quantity;
+    stockOut.movement_type = 'salida';
+    stockOut.reference = `Cambio producto venta ${saleId}`;
+    stockOut.user_id = sale.user_id;
+
+    await this.stockMovementRepository.save(stockOut);
+
+    return 'Producto cambiado satisfactoriamente';
   }
 
   // Realizar una devolución de producto

@@ -23,6 +23,9 @@ export class ChangeProductDto {
   old_product_price: number;
 
   @IsNumber()
+  old_product_size_id: number;
+
+  @IsNumber()
   new_product_price: number;
 
 }
