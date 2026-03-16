@@ -89,9 +89,9 @@ export class SaleService {
       /** 2️⃣ BUSCAR DETALLE DE LA VENTA */
       const saleDetail = await manager.findOne(SaleDetail, {
         where: {
-          sale_id: saleId,
-          product_id: productId,
-          product_size_id: oldProductSizeId
+          sale_id: Number(saleId),
+          product_id: Number(productId),
+          product_size_id: Number(oldProductSizeId)
         }
       });
       if (!saleDetail) {
