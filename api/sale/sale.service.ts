@@ -79,7 +79,7 @@ export class SaleService {
           id: saleId,
           warehouse: { id: warehouseId }
         },
-        relations: ['details', 'details.product', 'warehouse']
+        relations: ['details', 'details.product', 'details.productSize', 'warehouse']
       });
 
       if (!sale) {
@@ -89,8 +89,8 @@ export class SaleService {
       /** 2️⃣ BUSCAR DETALLE DE LA VENTA */
       const saleDetail = sale.details.find(
         (detail) =>
-          detail.product.id === productId &&
-          detail.product_size_id === oldProductSizeId
+          detail.product_id === productId &&
+          detail.product_size_id === oldProductSizeId 
       );
       if (!saleDetail) {
         throw new BadRequestException('Product not found in sale');
