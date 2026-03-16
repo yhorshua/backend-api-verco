@@ -116,7 +116,6 @@ export class SaleService {
     if (!newStock || newStock.quantity < quantity) {
       throw new BadRequestException('Insufficient stock for new product');
     }
-
     /** 5️⃣ DEVOLVER STOCK DEL PRODUCTO ORIGINAL */
     const oldStock = await manager.findOne(Stock, {
       where: {
