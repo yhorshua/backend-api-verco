@@ -87,11 +87,13 @@ export class SaleService {
       }
 
       /** 2️⃣ BUSCAR DETALLE DE LA VENTA */
-      const saleDetail = sale.details.find(
-        (detail) =>
-          detail.product_id === productId &&
-          detail.product_size_id === oldProductSizeId 
-      );
+      const saleDetail = await manager.findOne(SaleDetail, {
+        where: {
+          sale_id: saleId,
+          product_id: productId,
+          product_size_id: oldProductSizeId
+        }
+      });
       if (!saleDetail) {
         throw new BadRequestException('Product not found in sale');
       }
