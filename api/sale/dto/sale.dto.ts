@@ -9,6 +9,10 @@ export class ChangeProductDto {
 
   @Type(() => Number)
   @IsNumber()
+  warehouse_id: number;
+
+  @Type(() => Number)
+  @IsNumber()
   product_id: number;
 
   @Type(() => Number)

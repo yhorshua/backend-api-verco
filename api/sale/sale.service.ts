@@ -60,25 +60,33 @@ export class SaleService {
 
   // Realizar un cambio de producto
   async changeProduct(
-    saleId: number,
-    productId: number,
-    oldProductSizeId: number,
-    newProductId: number,
-    quantity: number,
-    newProductSizeId: number,
-    oldProductPrice: number,
-    newProductPrice: number
-  ): Promise<string> {
+  saleId: number,
+  warehouseId: number,
+  productId: number,
+  oldProductSizeId: number,
+  newProductId: number,
+  quantity: number,
+  newProductSizeId: number,
+  oldProductPrice: number,
+  newProductPrice: number
+): Promise<any> {
 
-    const sale = await this.saleRepository.findOne({
-      where: { id: saleId },
-      relations: ['details', 'details.product'],
+  return this.dataSource.transaction(async (manager) => {
+
+    /** 1️⃣ BUSCAR LA VENTA */
+    const sale = await manager.findOne(Sale, {
+      where: {
+        id: saleId,
+        warehouse: { id: warehouseId }
+      },
+      relations: ['details', 'details.product', 'warehouse']
     });
 
     if (!sale) {
       throw new NotFoundException('Sale not found');
     }
 
+    /** 2️⃣ BUSCAR DETALLE DE LA VENTA */
     const saleDetail = sale.details.find(
       (detail) =>
         detail.product_id === productId &&
@@ -89,85 +97,137 @@ export class SaleService {
       throw new BadRequestException('Product not found in sale');
     }
 
-    /** BUSCAR STOCK NUEVO PRODUCTO */
-    const stock = await this.stockRepository.findOne({
+    /** 3️⃣ VALIDAR CANTIDAD */
+    if (quantity > saleDetail.quantity) {
+      throw new BadRequestException(
+        'Quantity to exchange exceeds quantity sold'
+      );
+    }
+
+    /** 4️⃣ BUSCAR STOCK DEL NUEVO PRODUCTO */
+    const newStock = await manager.findOne(Stock, {
       where: {
         product_id: newProductId,
-        warehouse_id: sale.warehouse_id,
-        product_size_id: newProductSizeId,
-      },
+        warehouse_id: warehouseId,
+        product_size_id: newProductSizeId
+      }
     });
 
-    if (!stock || stock.quantity < quantity) {
+    if (!newStock || newStock.quantity < quantity) {
       throw new BadRequestException('Insufficient stock for new product');
     }
 
-    /** DEVOLVER STOCK DEL PRODUCTO ORIGINAL */
-    const stockReturn = await this.stockRepository.findOne({
+    /** 5️⃣ DEVOLVER STOCK DEL PRODUCTO ORIGINAL */
+    const oldStock = await manager.findOne(Stock, {
       where: {
         product_id: productId,
-        warehouse_id: sale.warehouse_id,
-        product_size_id: oldProductSizeId,
-      },
+        warehouse_id: warehouseId,
+        product_size_id: oldProductSizeId
+      }
     });
 
-    if (stockReturn) {
-      stockReturn.quantity += quantity;
-      await this.stockRepository.save(stockReturn);
+    if (!oldStock) {
+      throw new NotFoundException('Original stock not found');
     }
 
-    /** ACTUALIZAR DETALLE ORIGINAL */
+    oldStock.quantity += quantity;
+    await manager.save(oldStock);
+
+    /** 6️⃣ ACTUALIZAR DETALLE ORIGINAL */
     saleDetail.quantity -= quantity;
 
     if (saleDetail.quantity <= 0) {
-      await this.saleDetailRepository.remove(saleDetail);
+      await manager.remove(SaleDetail, saleDetail);
     } else {
-      await this.saleDetailRepository.save(saleDetail);
+      await manager.save(SaleDetail, saleDetail);
     }
 
-    /** CREAR NUEVO DETALLE */
-    const newSaleDetail = new SaleDetail();
+    /** 7️⃣ CREAR NUEVO DETALLE */
+    const newSaleDetail = manager.create(SaleDetail, {
+      sale_id: saleId,
+      product_id: newProductId,
+      product_size_id: newProductSizeId,
+      quantity: quantity,
+      unit_price: newProductPrice
+    });
 
-    newSaleDetail.sale_id = saleId;
-    newSaleDetail.product_id = newProductId;
-    newSaleDetail.product_size_id = newProductSizeId;
-    newSaleDetail.quantity = quantity;
-    newSaleDetail.unit_price = newProductPrice;
+    await manager.save(newSaleDetail);
 
-    await this.saleDetailRepository.save(newSaleDetail);
+    /** 8️⃣ DESCONTAR STOCK NUEVO PRODUCTO */
+    newStock.quantity -= quantity;
+    await manager.save(newStock);
 
-    /** DESCONTAR STOCK DEL PRODUCTO NUEVO */
-    stock.quantity -= quantity;
-    await this.stockRepository.save(stock);
+    /** 9️⃣ MOVIMIENTO STOCK DEVOLUCIÓN */
+    const stockIn = manager.create(StockMovement, {
+      warehouse_id: warehouseId,
+      product_id: productId,
+      product_size_id: oldProductSizeId,
+      quantity: quantity,
+      movement_type: 'entrada',
+      reference: `Cambio producto venta ${sale.sale_code}`,
+      user_id: sale.user_id
+    });
 
-    /** MOVIMIENTO STOCK DEVOLUCIÓN */
-    const stockIn = new StockMovement();
+    await manager.save(stockIn);
 
-    stockIn.warehouse_id = sale.warehouse_id;
-    stockIn.product_id = productId;
-    stockIn.product_size_id = oldProductSizeId;
-    stockIn.quantity = quantity;
-    stockIn.movement_type = 'entrada';
-    stockIn.reference = `Devolución producto venta ${saleId}`;
-    stockIn.user_id = sale.user_id;
+    /** 🔟 MOVIMIENTO STOCK SALIDA NUEVO PRODUCTO */
+    const stockOut = manager.create(StockMovement, {
+      warehouse_id: warehouseId,
+      product_id: newProductId,
+      product_size_id: newProductSizeId,
+      quantity: -quantity,
+      movement_type: 'salida',
+      reference: `Cambio producto venta ${sale.sale_code}`,
+      user_id: sale.user_id
+    });
 
-    await this.stockMovementRepository.save(stockIn);
+    await manager.save(stockOut);
 
-    /** MOVIMIENTO STOCK NUEVO PRODUCTO */
-    const stockOut = new StockMovement();
+    /** 1️⃣1️⃣ DIFERENCIA DE PRECIO */
+    const difference =
+      (newProductPrice - oldProductPrice) * quantity;
 
-    stockOut.warehouse_id = sale.warehouse_id;
-    stockOut.product_id = newProductId;
-    stockOut.product_size_id = newProductSizeId;
-    stockOut.quantity = -quantity;
-    stockOut.movement_type = 'salida';
-    stockOut.reference = `Cambio producto venta ${saleId}`;
-    stockOut.user_id = sale.user_id;
+    let message = 'Producto cambiado correctamente';
 
-    await this.stockMovementRepository.save(stockOut);
+    if (difference !== 0) {
 
-    return 'Producto cambiado satisfactoriamente';
-  }
+      const session = await manager.findOne(CashRegisterSession, {
+        where: {
+          warehouse_id: warehouseId,
+          status: 'OPEN'
+        },
+        order: { opened_at: 'DESC' }
+      });
+
+      if (!session) {
+        throw new BadRequestException('No open cash register');
+      }
+
+      const cashMovement = manager.create(CashMovement, {
+        session_id: session.id,
+        warehouse_id: warehouseId,
+        user_id: sale.user_id,
+        type: 'EXCHANGE',
+        payment_method: sale.payment_method || 'cash',
+        amount: difference,
+        reference_sale_id: sale.id,
+        description: `Diferencia cambio venta ${sale.sale_code}`
+      });
+
+      await manager.save(cashMovement);
+
+      message =
+        difference > 0
+          ? `Cliente debe pagar ${difference}`
+          : `Cliente recibe ${Math.abs(difference)}`;
+    }
+
+    return {
+      message,
+      priceDifference: difference
+    };
+  });
+}
 
   // Realizar una devolución de producto
   async returnProduct(
