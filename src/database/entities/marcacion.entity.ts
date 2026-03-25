@@ -6,6 +6,9 @@ export class Attendance {
   @PrimaryGeneratedColumn()
   id: number;
 
+  @Column({ type: 'int' })
+  user_id: number;
+
   @ManyToOne(() => User)
   @JoinColumn({ name: 'user_id' })
   user: User;
@@ -14,13 +17,13 @@ export class Attendance {
   fecha: Date;
 
   @Column({ nullable: true, type: 'datetime' })
-  hora_entrada: Date;
+  hora_entrada: Date | null;
 
   @Column({ nullable: true, type: 'datetime' })
-  hora_salida: Date;
+  hora_salida: Date | null;
 
   @Column({ type: 'enum', enum: ['entrada', 'salida'] })
-  tipo: string;
+  tipo: 'entrada' | 'salida';
 
   @Column({ type: 'bit', default: true })
   estado: boolean;
