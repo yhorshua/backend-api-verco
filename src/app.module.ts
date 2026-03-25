@@ -62,13 +62,34 @@ import { SaleReturn } from './database/entities/sale-return.entity';
       synchronize: false,                                // true solo en desarrollo
       retryAttempts: 10,
       retryDelay: 5000,
-      connectTimeout: 30000,
-      extra: {
-        connectionLimit: 5, // 🔥 CLAVE en serverless
-      }, 
-      
-      autoLoadEntities: true,// en mysql se llama connectTimeout
-      
+      connectTimeout: 30000,                             // en mysql se llama connectTimeout
+      entities: [
+        User,
+        Product,
+        Warehouse,
+        Order,
+        OrderDetail,
+        ProductSize,
+        Client,
+        DocumentType,
+        InventoryMovement,
+        OrderStatus,
+        Role,
+        Sale,
+        SaleDetail,
+        Series,
+        StockMovement,
+        Stock,
+        CashMovement,
+        CashRegisterSession,
+        SalePayment,
+        WarehouseSaleSequence,
+        StockReservation,
+        Escaneo,
+        Category,
+        Attendance,
+        SaleReturn,
+      ],
     }),
 
     ProductsModule,
@@ -91,4 +112,4 @@ import { SaleReturn } from './database/entities/sale-return.entity';
   controllers: [AppController],
   providers: [AppService],
 })
-export class AppModule { }
+export class AppModule {}
