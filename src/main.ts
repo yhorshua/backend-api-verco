@@ -30,7 +30,5 @@ async function bootstrap() {
 
   console.log(`🚀 Nest corriendo en http://localhost:${port}`);
 }
+bootstrap();
 
-if (process.env.NODE_ENV !== 'production') {
-  bootstrap();
-}
