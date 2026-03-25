@@ -7,9 +7,9 @@ import { Stock } from '../database/entities/stock.entity';
 import { StockMovement } from '../database/entities/stock-movements';
 import { SalePayment } from '../database/entities/sale-payments.entity';
 import { Product } from '../database/entities/product.entity';
-import { SaleReturn } from 'api/database/entities/sale-return.entity';
-import { CashMovement } from 'api/database/entities/cash-movement.entity';
-import { CashRegisterSession } from 'api/database/entities/cash-register-session.entity';
+import { SaleReturn } from 'src/database/entities/sale-return.entity';
+import { CashMovement } from 'src/database/entities/cash-movement.entity';
+import { CashRegisterSession } from 'src/database/entities/cash-register-session.entity';
 import { DataSource } from 'typeorm';
 
 @Injectable()

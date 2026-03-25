@@ -3,7 +3,7 @@ import { CashService } from './cash.service';
 import { OpenCashDto } from './dto/cash-open.dto';
 import { ExpenseDto } from './dto/expense.dto';
 import { CloseCashDto } from './dto/close-cash.dto';
-import { JwtAuthGuard } from 'api/auth/jwt-auth.guard';
+import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
 
 
 

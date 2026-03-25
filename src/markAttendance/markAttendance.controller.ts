@@ -1,7 +1,7 @@
 import { Controller, Post, Body, Param, Get, UseGuards } from '@nestjs/common';
 import { AttendanceService } from './markAttendance.service';
 import { Attendance } from '../database/entities/marcacion.entity';
-import { JwtAuthGuard } from 'api/auth/jwt-auth.guard';
+import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
 import { HasUserEnteredTodayResponseDto } from './hasUserEnteredTodayResponse.dto';
 
 @Controller('attendance')

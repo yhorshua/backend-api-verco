@@ -9,8 +9,8 @@ import { StockMovement } from '../database/entities/stock-movements';
 import { Product } from '../database/entities/product.entity';
 import { Warehouse } from '../database/entities/warehouse.entity';
 import { User } from '../database/entities/user.entity';
-import { SaleReturn } from 'api/database/entities/sale-return.entity';
-import { CashMovement } from 'api/database/entities/cash-movement.entity';
+import { SaleReturn } from 'src/database/entities/sale-return.entity';
+import { CashMovement } from 'src/database/entities/cash-movement.entity';
 
 @Module({
   imports: [

@@ -6,8 +6,8 @@ import { ProductSize } from '../database/entities/product-size.entity';
 import { Stock } from '../database/entities/stock.entity';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
-import { Series } from 'api/database/entities/series.entity';
-import { Category } from 'api/database/entities/categories.entity';
+import { Series } from 'src/database/entities/series.entity';
+import { Category } from 'src/database/entities/categories.entity';
 
 @Injectable()
 export class ProductsService {

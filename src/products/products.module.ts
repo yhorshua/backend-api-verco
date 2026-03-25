@@ -4,9 +4,9 @@ import { ProductsService } from './products.service';
 import { ProductsController } from './products.controller';
 import { Product } from '../database/entities/product.entity';
 import { Stock } from '../database/entities/stock.entity';
-import { ProductSize } from 'api/database/entities/product-size.entity';
-import { Series } from 'api/database/entities/series.entity';
-import { Category } from 'api/database/entities/categories.entity';
+import { ProductSize } from 'src/database/entities/product-size.entity';
+import { Series } from 'src/database/entities/series.entity';
+import { Category } from 'src/database/entities/categories.entity';
 
 @Module({
   imports: [TypeOrmModule.forFeature([Product, Stock, ProductSize, Series, Category])], // 👈 registra repositorios

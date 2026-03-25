@@ -5,8 +5,8 @@ import { User } from '../database/entities/user.entity';
 import * as bcrypt from 'bcrypt';
 import { CreateUserDto } from './create-user.dto';
 import {SellersByWarehouseQueryDto} from './dto/sellers-by-warehouse.query.dto'
-import { Role } from 'api/database/entities/role.entity';
-import { Warehouse } from 'api/database/entities/warehouse.entity';
+import { Role } from 'src/database/entities/role.entity';
+import { Warehouse } from 'src/database/entities/warehouse.entity';
 
 export type WarehouseUserOption = {
   id: number;

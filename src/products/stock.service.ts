@@ -13,8 +13,8 @@ import { CashRegisterSession } from '../database/entities/cash-register-session.
 import { CashMovement } from '../database/entities/cash-movement.entity';
 
 import { CreateSaleDto, PaymentMethod } from './dto/create-sale.dto';
-import { ProductSize } from 'api/database/entities/product-size.entity';
-import { Product } from 'api/database/entities/product.entity';
+import { ProductSize } from 'src/database/entities/product-size.entity';
+import { Product } from 'src/database/entities/product.entity';
 import moment from 'moment-timezone';
 
 @Injectable()

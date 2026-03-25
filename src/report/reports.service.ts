@@ -9,8 +9,8 @@ import { Warehouse } from '../database/entities/warehouse.entity';
 import { User } from '../database/entities/user.entity';
 
 import { SalesReportQueryDto } from './dto/sales-report.query.dto';
-import { CashMovement } from 'api/database/entities/cash-movement.entity';
-import { CashRegisterSession } from 'api/database/entities/cash-register-session.entity';
+import { CashMovement } from 'src/database/entities/cash-movement.entity';
+import { CashRegisterSession } from 'src/database/entities/cash-register-session.entity';
 
 type ReportRow = {
   sale_id: number;
