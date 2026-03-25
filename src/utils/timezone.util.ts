@@ -2,7 +2,7 @@ import moment from 'moment-timezone';
 
 // Siempre devuelve Date en hora Perú (pero guardado en UTC correctamente)
 export const nowInPeru = (): Date => {
-  return new Date();
+    return moment().tz('America/Lima').toDate();
 };
 
 // Inicio del día en Perú
