@@ -7,7 +7,7 @@ let cachedServer: any;
 
 async function bootstrap() {
   if (!cachedServer) {
-    const app = await NestFactory.create(AppModule);
+    const app = await NestFactory.create(AppModule, { bufferLogs: true });
 
     app.useGlobalPipes(
       new ValidationPipe({
@@ -39,6 +39,14 @@ async function bootstrap() {
 }
 
 export default async function handler(req: any, res: any) {
-  const server = await bootstrap();
-  return server(req, res);
+  try {
+    const server = await bootstrap();
+    return server(req, res);
+  } catch (err) {
+    console.error('SERVER ERROR:', err);
+    res.status(500).json({
+      error: 'Internal error',
+      details: err?.message,
+    });
+  }
 }
