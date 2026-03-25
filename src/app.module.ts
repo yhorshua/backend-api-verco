@@ -65,34 +65,10 @@ import { SaleReturn } from './database/entities/sale-return.entity';
       connectTimeout: 30000,
       extra: {
         connectionLimit: 5, // 🔥 CLAVE en serverless
-      },               // en mysql se llama connectTimeout
-      entities: [
-        User,
-        Product,
-        Warehouse,
-        Order,
-        OrderDetail,
-        ProductSize,
-        Client,
-        DocumentType,
-        InventoryMovement,
-        OrderStatus,
-        Role,
-        Sale,
-        SaleDetail,
-        Series,
-        StockMovement,
-        Stock,
-        CashMovement,
-        CashRegisterSession,
-        SalePayment,
-        WarehouseSaleSequence,
-        StockReservation,
-        Escaneo,
-        Category,
-        Attendance,
-        SaleReturn,
-      ],
+      }, 
+      
+      autoLoadEntities: true,// en mysql se llama connectTimeout
+      
     }),
 
     ProductsModule,
