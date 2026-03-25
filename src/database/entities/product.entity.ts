@@ -65,4 +65,13 @@ export class Product {
 
   @OneToMany(() => Stock, (stock) => stock.product)
   stock: Stock[];
+
+  @Column('decimal', { precision: 10, scale: 2})
+  factory_price: number;
+
+  @Column('decimal', { precision: 10, scale: 2})
+  dropshipping_price: number;
+
+  @Column('decimal', { precision: 10, scale: 2})
+  wholesale_price: number;
 }
