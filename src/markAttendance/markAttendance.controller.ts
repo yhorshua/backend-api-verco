@@ -3,6 +3,7 @@ import { AttendanceService } from './markAttendance.service';
 import { Attendance } from '../database/entities/marcacion.entity';
 import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
 import { HasUserEnteredTodayResponseDto } from './hasUserEnteredTodayResponse.dto';
+import { AttendanceResponseDto } from './dto/attendanceDto';
 
 @Controller('attendance')
 export class AttendanceController {
@@ -15,7 +16,7 @@ export class AttendanceController {
     @Body('userId') userId: number,
     @Body('type') type: 'entrada' | 'salida',
     @Body('ubicacion') ubicacion: string,
-  ): Promise<Attendance> {
+  ): Promise<AttendanceResponseDto> {
     return this.attendanceService.markAttendance(userId, type, ubicacion);
   }
 
