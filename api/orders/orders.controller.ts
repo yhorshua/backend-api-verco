@@ -24,7 +24,6 @@ export class OrdersController {
   list(@Query() q: ListOrdersDto) {
     return this.service.listOrders(q);
   }
-
   @Get(':id')
   getOne(@Param('id') id: string) {
     return this.service.getOrder(Number(id));
