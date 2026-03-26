@@ -849,248 +849,254 @@ export class ReportsService {
 
   async getSellerSalesDetailReport(dto: SalesReportQueryDto) {
 
-  const { start, end } = this.buildRange(dto);
+    const { start, end } = this.buildRange(dto);
 
-  const warehouse = await this.warehouseRepo.findOne({
-    where: { id: dto.warehouseId },
-  });
-
-  if (!warehouse) {
-    throw new BadRequestException('Warehouse not found');
-  }
-
-  const qb = this.saleDetailRepo
-    .createQueryBuilder('d')
-    .leftJoinAndSelect('d.sale', 's')
-    .leftJoinAndSelect('s.user', 'u')
-    .leftJoinAndSelect('d.product', 'p')
-    .leftJoinAndSelect('p.category', 'c')
-    .leftJoinAndSelect('d.productSize', 'ps')
-    .where('s.sale_date BETWEEN :start AND :end', { start, end })
-    .andWhere('s.warehouse_id = :warehouseId', { warehouseId: dto.warehouseId });
-
-  if (dto.userId) {
-    qb.andWhere('s.user_id = :userId', { userId: dto.userId });
-  }
-
-  const details = await qb.getMany();
-
-  const sellers = new Map<
-    number,
-    {
-      seller_id: number;
-      seller_name: string;
-      total_pairs: number;
-      total_commission: number;
-      categories: Map<
-        string,
-        {
-          category: string;
-          pairs: number;
-          amount: number;
-          sales: any[];
-        }
-      >;
-    }
-  >();
-
-  for (const d of details) {
-
-    const sellerId = d.sale.user_id;
-    const sellerName = d.sale.user?.full_name ?? 'Unknown';
-
-    const categoryName = d.product?.category?.name ?? 'Sin categoria';
-
-    const quantity = Number(d.quantity);
-    const unitPrice = Number(d.unit_price);
-
-    const lineTotal = quantity * unitPrice;
-
-    /**
-     * VALIDACIÓN 2x1
-     * Si el precio unitario es la mitad aproximada
-     * del precio normal, asumimos promoción
-     */
-
-    let validPairs = quantity;
-
-    if (quantity === 2) {
-
-      const approxPrice = unitPrice * quantity;
-
-      if (approxPrice === 140 || approxPrice === 150) {
-        validPairs = 1;
-      }
-
-    }
-
-    const commissionPerPair = 1;
-
-    if (!sellers.has(sellerId)) {
-      sellers.set(sellerId, {
-        seller_id: sellerId,
-        seller_name: sellerName,
-        total_pairs: 0,
-        total_commission: 0,
-        categories: new Map(),
-      });
-    }
-
-    const seller = sellers.get(sellerId)!;
-
-    seller.total_pairs += validPairs;
-    seller.total_commission += validPairs * commissionPerPair;
-
-    if (!seller.categories.has(categoryName)) {
-      seller.categories.set(categoryName, {
-        category: categoryName,
-        pairs: 0,
-        amount: 0,
-        sales: [],
-      });
-    }
-
-    const category = seller.categories.get(categoryName)!;
-
-    category.pairs += validPairs;
-    category.amount += lineTotal;
-
-    category.sales.push({
-      sale_id: d.sale.id,
-      sale_code: d.sale.sale_code,
-      sale_date: d.sale.sale_date,
-
-      product_id: d.product_id,
-      article_code: d.product?.article_code,
-      article_description: d.product?.article_description,
-
-      size: d.productSize?.size ?? null,
-
-      quantity,
-      unit_price: unitPrice,
-
-      total: lineTotal,
-
-      counted_pairs: validPairs,
+    const warehouse = await this.warehouseRepo.findOne({
+      where: { id: dto.warehouseId },
     });
 
-  }
-
-  const result = Array.from(sellers.values()).map((seller) => {
-
-    const categories = Array.from(seller.categories.values());
-
-    return {
-      seller_id: seller.seller_id,
-      seller_name: seller.seller_name,
-      total_pairs: seller.total_pairs,
-      total_commission: seller.total_commission,
-      categories,
-    };
-  });
-
-  return {
-    meta: {
-      warehouse_id: dto.warehouseId,
-      warehouse_name: warehouse.warehouse_name,
-      start,
-      end,
-      sellers: result.length,
-    },
-    sellers: result,
-  };
-}
-
-
-async getSneakersGoalProgress(dto: SalesReportQueryDto) {
-  const { start, end } = this.buildRange(dto);
-
-  const warehouse = await this.warehouseRepo.findOne({
-    where: { id: dto.warehouseId },
-  });
-
-  if (!warehouse) {
-    throw new BadRequestException('Warehouse not found');
-  }
-
-  // 🔥 Traer solo ventas de ZAPATILLAS
-  const details = await this.saleDetailRepo
-    .createQueryBuilder('d')
-    .leftJoinAndSelect('d.sale', 's')
-    .leftJoinAndSelect('d.product', 'p')
-    .leftJoinAndSelect('p.category', 'c')
-    .where('s.sale_date BETWEEN :start AND :end', { start, end })
-    .andWhere('s.warehouse_id = :warehouseId', {
-      warehouseId: dto.warehouseId,
-    })
-    .andWhere('c.name = :category', { category: 'Zapatillas' })
-    .getMany();
-
-  let totalPairs = 0;
-  let totalRevenue = 0;
-  let totalCost = 0;
-  let totalProfit = 0;
-
-  for (const d of details) {
-    const quantity = Number(d.quantity);
-    const salePrice = Number(d.unit_price);
-    const purchasePrice = Number(d.product.unit_price); // costo
-
-    /**
-     * 🔥 VALIDACIÓN 2x1 (igual que ya usas)
-     */
-    let validPairs = quantity;
-
-    if (quantity === 2) {
-      const approx = salePrice * quantity;
-
-      if (approx === 140 || approx === 150) {
-        validPairs = 1;
-      }
+    if (!warehouse) {
+      throw new BadRequestException('Warehouse not found');
     }
 
-    const lineRevenue = quantity * salePrice;
-    const lineCost = quantity * purchasePrice;
-    const lineProfit = lineRevenue - lineCost;
+    const qb = this.saleDetailRepo
+      .createQueryBuilder('d')
+      .leftJoinAndSelect('d.sale', 's')
+      .leftJoinAndSelect('s.user', 'u')
+      .leftJoinAndSelect('d.product', 'p')
+      .leftJoinAndSelect('p.category', 'c')
+      .leftJoinAndSelect('d.productSize', 'ps')
+      .where('s.sale_date BETWEEN :start AND :end', { start, end })
+      .andWhere('s.warehouse_id = :warehouseId', { warehouseId: dto.warehouseId });
 
-    totalPairs += validPairs;
-    totalRevenue += lineRevenue;
-    totalCost += lineCost;
-    totalProfit += lineProfit;
+    if (dto.userId) {
+      qb.andWhere('s.user_id = :userId', { userId: dto.userId });
+    }
+
+    const details = await qb.getMany();
+
+    const sellers = new Map<
+      number,
+      {
+        seller_id: number;
+        seller_name: string;
+        total_pairs: number;
+        total_commission: number;
+        categories: Map<
+          string,
+          {
+            category: string;
+            pairs: number;
+            amount: number;
+            sales: any[];
+          }
+        >;
+      }
+    >();
+
+    for (const d of details) {
+
+      const sellerId = d.sale.user_id;
+      const sellerName = d.sale.user?.full_name ?? 'Unknown';
+
+      const categoryName = d.product?.category?.name ?? 'Sin categoria';
+
+      const quantity = Number(d.quantity);
+      const unitPrice = Number(d.unit_price);
+
+      const lineTotal = quantity * unitPrice;
+
+      /**
+       * VALIDACIÓN 2x1
+       * Si el precio unitario es la mitad aproximada
+       * del precio normal, asumimos promoción
+       */
+
+      let validPairs = quantity;
+
+      if (quantity === 2) {
+
+        const approxPrice = unitPrice * quantity;
+
+        if (approxPrice === 140 || approxPrice === 150) {
+          validPairs = 1;
+        }
+
+      }
+
+      const commissionPerPair = 1;
+
+      if (!sellers.has(sellerId)) {
+        sellers.set(sellerId, {
+          seller_id: sellerId,
+          seller_name: sellerName,
+          total_pairs: 0,
+          total_commission: 0,
+          categories: new Map(),
+        });
+      }
+
+      const seller = sellers.get(sellerId)!;
+
+      seller.total_pairs += validPairs;
+      seller.total_commission += validPairs * commissionPerPair;
+
+      if (!seller.categories.has(categoryName)) {
+        seller.categories.set(categoryName, {
+          category: categoryName,
+          pairs: 0,
+          amount: 0,
+          sales: [],
+        });
+      }
+
+      const category = seller.categories.get(categoryName)!;
+
+      category.pairs += validPairs;
+      category.amount += lineTotal;
+
+      category.sales.push({
+        sale_id: d.sale.id,
+        sale_code: d.sale.sale_code,
+        sale_date: d.sale.sale_date,
+
+        product_id: d.product_id,
+        article_code: d.product?.article_code,
+        article_description: d.product?.article_description,
+
+        size: d.productSize?.size ?? null,
+
+        quantity,
+        unit_price: unitPrice,
+
+        total: lineTotal,
+
+        counted_pairs: validPairs,
+      });
+
+    }
+
+    const result = Array.from(sellers.values()).map((seller) => {
+
+      const categories = Array.from(seller.categories.values());
+
+      return {
+        seller_id: seller.seller_id,
+        seller_name: seller.seller_name,
+        total_pairs: seller.total_pairs,
+        total_commission: seller.total_commission,
+        categories,
+      };
+    });
+
+    return {
+      meta: {
+        warehouse_id: dto.warehouseId,
+        warehouse_name: warehouse.warehouse_name,
+        start,
+        end,
+        sellers: result.length,
+      },
+      sellers: result,
+    };
   }
 
-  // 🎯 METAS del warehouse
-  const goalPairs = warehouse.cantidad_pares || 0;
-  const goalAmount = Number(warehouse.monto || 0);
 
-  return {
-    meta: {
-      warehouse_id: warehouse.id,
-      warehouse_name: warehouse.warehouse_name,
-      start,
-      end,
-    },
+  async getSneakersGoalProgress(dto: SalesReportQueryDto) {
+    const { start, end } = this.buildRange(dto);
 
-    progress: {
-      pairs_sold: totalPairs,
-      pairs_goal: goalPairs,
-      pairs_remaining: Math.max(goalPairs - totalPairs, 0),
-      pairs_percentage: goalPairs
-        ? Number(((totalPairs / goalPairs) * 100).toFixed(2))
-        : 0,
+    const warehouse = await this.warehouseRepo.findOne({
+      where: { id: dto.warehouseId },
+    });
 
-      revenue: Number(totalRevenue.toFixed(2)),
-      revenue_goal: goalAmount,
-      revenue_remaining: Math.max(goalAmount - totalRevenue, 0),
-      revenue_percentage: goalAmount
-        ? Number(((totalRevenue / goalAmount) * 100).toFixed(2))
-        : 0,
+    if (!warehouse) {
+      throw new BadRequestException('Warehouse not found');
+    }
 
-      profit: Number(totalProfit.toFixed(2)),
-      cost: Number(totalCost.toFixed(2)),
-    },
-  };
-}
+    // 🔥 Traer solo ventas de ZAPATILLAS
+    const details = await this.saleDetailRepo
+      .createQueryBuilder('d')
+      .leftJoinAndSelect('d.sale', 's')
+      .leftJoinAndSelect('d.product', 'p')
+      .leftJoinAndSelect('p.category', 'c')
+      .where('s.sale_date BETWEEN :start AND :end', { start, end })
+      .andWhere('s.warehouse_id = :warehouseId', {
+        warehouseId: dto.warehouseId,
+      })
+      .andWhere('c.name = :category', { category: 'Zapatillas' })
+      .getMany();
+
+    let totalPairs = 0;
+    let totalRevenue = 0;
+    let totalCost = 0;
+    let totalProfit = 0;
+
+    for (const d of details) {
+      const quantity = Number(d.quantity);
+      const salePrice = Number(d.unit_price);
+      const purchasePrice = Number(d.product.unit_price); // costo
+
+      /**
+       * 🔥 VALIDACIÓN 2x1 (igual que ya usas)
+       */
+      let validPairs = quantity;
+
+      if (quantity === 2) {
+        const approx = salePrice * quantity;
+
+        if (approx === 140 || approx === 150) {
+          validPairs = 1;
+        }
+      }
+
+      const lineRevenue = quantity * salePrice;
+      const lineCost = quantity * purchasePrice;
+      const lineProfit = lineRevenue - lineCost;
+
+      totalPairs += validPairs;
+      totalRevenue += lineRevenue;
+      totalCost += lineCost;
+      totalProfit += lineProfit;
+    }
+
+    // 🎯 METAS del warehouse
+    const goalPairs = warehouse.cantidad_pares || 0;
+    const goalAmount = Number(warehouse.monto || 0);
+
+    return {
+      meta: {
+        warehouse_id: warehouse.id,
+        warehouse_name: warehouse.warehouse_name,
+        start,
+        end,
+      },
+
+      progress: {
+        pairs_sold: totalPairs,
+        pairs_goal: goalPairs,
+        pairs_remaining: Math.max(goalPairs - totalPairs, 0),
+        pairs_percentage: goalPairs
+          ? Number(((totalPairs / goalPairs) * 100).toFixed(2))
+          : 0,
+
+        revenue: Number(totalRevenue.toFixed(2)),
+        revenue_goal: goalAmount,
+        revenue_remaining: Math.max(goalAmount - totalRevenue, 0),
+        revenue_percentage: goalAmount
+          ? Number(((totalRevenue / goalAmount) * 100).toFixed(2))
+          : 0,
+
+        profit: Number(totalProfit.toFixed(2)),
+        cost: Number(totalCost.toFixed(2)),
+        profit_margin_percentage: goalAmount
+          ? Number(((totalProfit / goalAmount) * 100).toFixed(2))
+          : 0,
+        profit_margin_real: totalRevenue
+          ? Number(((totalProfit / totalRevenue) * 100).toFixed(2))
+          : 0,
+      },
+    };
+  }
 
 }
 
