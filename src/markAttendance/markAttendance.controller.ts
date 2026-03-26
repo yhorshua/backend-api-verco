@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Param, Get, UseGuards } from '@nestjs/common';
+import { Controller, Post, Body, Param, Get, UseGuards, Query, Request } from '@nestjs/common';
 import { AttendanceService } from './markAttendance.service';
 import { Attendance } from '../database/entities/marcacion.entity';
 import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
@@ -35,5 +35,18 @@ export class AttendanceController {
     }
 
     return result;  // Devolvemos el DTO que ya contiene la respuesta
+  }
+
+
+  @UseGuards(JwtAuthGuard)
+  @Get('salary')
+  async getSalaryReport(
+    @Query('month') month: number,
+    @Query('year') year: number,
+    @Request() req
+  ) {
+    const userId = req.user.id;
+    const report = await this.attendanceService.generateSalaryReport(userId, month, year);
+    return report;
   }
 }

@@ -68,4 +68,12 @@ export class ReportsController {
   getSellerSalesDetailReport(@Query() query: SalesReportQueryDto) {
     return this.reportsService.getSellerSalesDetailReport(query);
   }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('sneakers-goal')
+  async getSneakersGoal(
+    @Query() dto: SalesReportQueryDto,
+  ) {
+    return this.reportsService.getSneakersGoalProgress(dto);
+  }
 }

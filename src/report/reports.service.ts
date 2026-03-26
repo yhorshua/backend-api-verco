@@ -1002,5 +1002,95 @@ export class ReportsService {
 }
 
 
+async getSneakersGoalProgress(dto: SalesReportQueryDto) {
+  const { start, end } = this.buildRange(dto);
+
+  const warehouse = await this.warehouseRepo.findOne({
+    where: { id: dto.warehouseId },
+  });
+
+  if (!warehouse) {
+    throw new BadRequestException('Warehouse not found');
+  }
+
+  // 🔥 Traer solo ventas de ZAPATILLAS
+  const details = await this.saleDetailRepo
+    .createQueryBuilder('d')
+    .leftJoinAndSelect('d.sale', 's')
+    .leftJoinAndSelect('d.product', 'p')
+    .leftJoinAndSelect('p.category', 'c')
+    .where('s.sale_date BETWEEN :start AND :end', { start, end })
+    .andWhere('s.warehouse_id = :warehouseId', {
+      warehouseId: dto.warehouseId,
+    })
+    .andWhere('c.name = :category', { category: 'Zapatillas' })
+    .getMany();
+
+  let totalPairs = 0;
+  let totalRevenue = 0;
+  let totalCost = 0;
+  let totalProfit = 0;
+
+  for (const d of details) {
+    const quantity = Number(d.quantity);
+    const salePrice = Number(d.unit_price);
+    const purchasePrice = Number(d.product.unit_price); // costo
+
+    /**
+     * 🔥 VALIDACIÓN 2x1 (igual que ya usas)
+     */
+    let validPairs = quantity;
+
+    if (quantity === 2) {
+      const approx = salePrice * quantity;
+
+      if (approx === 140 || approx === 150) {
+        validPairs = 1;
+      }
+    }
+
+    const lineRevenue = quantity * salePrice;
+    const lineCost = quantity * purchasePrice;
+    const lineProfit = lineRevenue - lineCost;
+
+    totalPairs += validPairs;
+    totalRevenue += lineRevenue;
+    totalCost += lineCost;
+    totalProfit += lineProfit;
+  }
+
+  // 🎯 METAS del warehouse
+  const goalPairs = warehouse.cantidad_pares || 0;
+  const goalAmount = Number(warehouse.monto || 0);
+
+  return {
+    meta: {
+      warehouse_id: warehouse.id,
+      warehouse_name: warehouse.warehouse_name,
+      start,
+      end,
+    },
+
+    progress: {
+      pairs_sold: totalPairs,
+      pairs_goal: goalPairs,
+      pairs_remaining: Math.max(goalPairs - totalPairs, 0),
+      pairs_percentage: goalPairs
+        ? Number(((totalPairs / goalPairs) * 100).toFixed(2))
+        : 0,
+
+      revenue: Number(totalRevenue.toFixed(2)),
+      revenue_goal: goalAmount,
+      revenue_remaining: Math.max(goalAmount - totalRevenue, 0),
+      revenue_percentage: goalAmount
+        ? Number(((totalRevenue / goalAmount) * 100).toFixed(2))
+        : 0,
+
+      profit: Number(totalProfit.toFixed(2)),
+      cost: Number(totalCost.toFixed(2)),
+    },
+  };
+}
+
 }
 

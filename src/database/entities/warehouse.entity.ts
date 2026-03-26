@@ -18,6 +18,13 @@ export class Warehouse {
   @Column({ type: 'bit', default: true })
   status: boolean;
 
+  // 🔥 NUEVOS CAMPOS
+  @Column({ type: 'int', default: 0 })
+  cantidad_pares: number;
+
+  @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
+  monto: number;
+
   // Relación inversa con Stock
   @OneToMany(() => Stock, stock => stock.warehouse)
   stock: Stock[];  // Asegúrate de que esta propiedad esté configurada correctamente

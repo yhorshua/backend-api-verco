@@ -52,5 +52,9 @@ export class User {
   @OneToMany(() => Attendance, attendance => attendance.user)
   attendances: Attendance[];
 
+  @Column({ type: 'time', nullable: true })
+  hora_ingreso: string;  // Ej: '09:00:00'
 
+  @Column({ type: 'time', nullable: true })
+  hora_salida: string;  // Ej: '18:00:00'
 }
