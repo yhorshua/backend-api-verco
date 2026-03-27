@@ -148,6 +148,12 @@ export class OrdersService {
             .createQueryBuilder('r')
             .select('COALESCE(SUM(r.quantity),0)', 'qty')
             .where('r.product_id = :p', { p: it.product_id })
+            .andWhere(
+              it.product_size_id
+                ? 'r.product_size_id = :ps'
+                : 'r.product_size_id IS NULL',
+              { ps: it.product_size_id }
+            )
             .andWhere('r.status = :st', {
               st: StockReservationStatus.RESERVADO,
             })
