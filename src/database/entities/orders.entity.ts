@@ -78,4 +78,23 @@ export class Order {
   // 🔹 RELACIÓN CON DETALLES
   @OneToMany(() => OrderDetail, (detail) => detail.order)
   details: OrderDetail[];
+
+  // 🔥 NUEVO: TIPO DE ORDEN
+  @Column({ default: 'NORMAL' })
+  order_type: 'NORMAL' | 'DROPSHIPPING';
+
+  // 🔥 NUEVO: ESTADO DE PAGO
+  @Column({ default: 'PENDIENTE' })
+  payment_status: 'PENDIENTE' | 'PAGADO';
+
+  // 🔥 NUEVO: REFERENCIA DE PAGO
+  @Column({ nullable: true })
+  payment_reference?: string;
+
+  // (opcional PRO)
+  @Column({ nullable: true })
+  shipping_address?: string;
+
+  @Column({ nullable: true })
+  shipping_reference?: string;
 }

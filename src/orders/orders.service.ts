@@ -369,6 +369,82 @@ export class OrdersService {
       };
     });
   }
+
+  async createDropshippingOrder(dto: CreateOrderDto & { payment_reference: string }) {
+    if (!dto.payment_reference) {
+      throw new BadRequestException('Debe enviar referencia de pago');
+    }
+
+    return this.dataSource.transaction(async (manager) => {
+      const orderRepo = manager.getRepository(Order);
+      const detailRepo = manager.getRepository(OrderDetail);
+      const productRepo = manager.getRepository(Product);
+      const stockRepo = manager.getRepository(Stock);
+
+      if (!dto.items?.length) {
+        throw new BadRequestException('items requerido');
+      }
+
+      /* ============================================================
+         VALIDAR STOCK (pero NO reservar)
+      ============================================================ */
+      for (const it of dto.items) {
+        const stock = await stockRepo.findOne({
+          where: {
+            product_id: it.product_id,
+            warehouse_id: dto.warehouse_id,
+          },
+        });
+
+        if (!stock || Number(stock.quantity) < it.quantity) {
+          throw new BadRequestException(
+            `Stock insuficiente para producto ${it.product_id}`,
+          );
+        }
+      }
+
+      /* ============================================================
+         CREAR ORDEN YA APROBADA
+      ============================================================ */
+      const order = orderRepo.create({
+        proforma_number: Date.now(),
+        client_id: dto.client_id,
+        user_id: dto.user_id,
+        warehouse_id: dto.warehouse_id,
+
+        order_type: 'DROPSHIPPING',
+        payment_status: 'PAGADO',
+        payment_reference: dto.payment_reference,
+
+        order_status_id: OrderStatusEnum.APROBADO, // 🔥 directo aprobado
+        approval_date: new Date(),
+      });
+
+      const savedOrder = await orderRepo.save(order);
+
+      /* ============================================================
+         DETALLES
+      ============================================================ */
+      for (const it of dto.items) {
+        await detailRepo.save(
+          detailRepo.create({
+            order_id: savedOrder.id,
+            product_id: it.product_id,
+            product_size_id: it.product_size_id ?? null,
+            quantity: it.quantity,
+            unit_price: it.unit_price,
+            total_amount: it.quantity * Number(it.unit_price),
+          } as any),
+        );
+      }
+
+      return {
+        ok: true,
+        order: savedOrder,
+        message: 'Pedido dropshipping creado y aprobado automáticamente',
+      };
+    });
+  }
 }
 
 
