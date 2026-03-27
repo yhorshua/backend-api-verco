@@ -41,4 +41,7 @@ export class EstadoCuenta {
   @ManyToOne(() => GuiaInterna)
   @JoinColumn({ name: 'id_guia_interna' })
   guia_interna: GuiaInterna;
+
+  @Column({ default: 'PENDIENTE' })
+  estado: 'PENDIENTE' | 'PAGADO';
 }

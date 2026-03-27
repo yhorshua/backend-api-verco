@@ -1,0 +1,6 @@
+export enum GuiaEstadoEnum {
+  GENERADA = 'GENERADA',
+  DESPACHADA = 'DESPACHADA',
+  ENTREGADA = 'ENTREGADA',
+  ANULADA = 'ANULADA',
+}

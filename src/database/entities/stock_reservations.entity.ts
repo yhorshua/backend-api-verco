@@ -66,6 +66,9 @@ export class StockReservation {
   })
   status: StockReservationStatus;
 
+  @Column({ nullable: true }) // 🔥 AGREGAR
+  created_by: number;
+
   @CreateDateColumn({ type: 'datetime' })
   created_at: Date;
 

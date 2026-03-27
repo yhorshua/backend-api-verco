@@ -4,6 +4,7 @@ import { Order } from './orders.entity';
 import { User } from './user.entity';
 import { Client } from './client.entity';
 import { GuiaInternaDetalle } from './guia-interna-detalle.entity';
+import { GuiaEstadoEnum } from 'src/guia-interna/dto/guia-estado.enum';
 
 @Entity('GuiaInterna')
 export class GuiaInterna {
@@ -34,8 +35,12 @@ export class GuiaInterna {
   @JoinColumn({ name: 'usuario_id' })
   user: User;
 
-  @Column({ type: 'varchar', length: 50, nullable: true, default: 'Pendiente' })
-  estado: string;
+  @Column({
+    type: 'varchar',
+    length: 20,
+    default: GuiaEstadoEnum.GENERADA,
+  })
+  estado: GuiaEstadoEnum;
 
   @Column({ type: 'int' })
   proforma_number: number;

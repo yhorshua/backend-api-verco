@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 
@@ -6,6 +6,12 @@ import { ScanItemDto } from './dto/scan-item.dto';
 import { Escaneo } from '../database/entities/escaneo.entity';
 import { OrderDetail } from '../database/entities/order-details.entity';
 import { Product } from '../database/entities/product.entity';
+import { Order } from 'src/database/entities/orders.entity';
+import { Stock } from 'src/database/entities/stock.entity';
+import { StockReservation } from 'src/database/entities/stock_reservations.entity';
+import { StockReservationStatus } from 'src/database/entities/stock-reservation-status.enum';
+import { InventoryMovement } from 'src/database/entities/inventory-movements.entity';
+import { OrderStatusEnum } from 'src/orders/dto/orderStatusEnum';
 
 @Injectable()
 export class PackingService {
@@ -20,7 +26,7 @@ export class PackingService {
 
     @InjectRepository(Product)
     private readonly productRepo: Repository<Product>,
-  ) {}
+  ) { }
 
   async getPacking(orderId: number) {
     const scans = await this.escaneoRepo.find({
@@ -64,9 +70,14 @@ export class PackingService {
       });
       if (!product) throw new BadRequestException(`Código no existe: ${dto.codigo_producto}`);
 
-      const line = (details as any[]).find(
-        (d) => d.product_id === product.id && String(d.size) === String(dto.talla),
-      );
+      const line = await orderDetailRepo.findOne({
+        where: {
+          order_id: dto.order_id,
+          product_id: product.id,
+          size: dto.talla,
+        } as any,
+        lock: { mode: 'pessimistic_write' },
+      });
       if (!line) {
         throw new BadRequestException(
           `El producto/talla no está en el pedido: ${dto.codigo_producto} ${dto.talla}`,
@@ -106,85 +117,270 @@ export class PackingService {
   }
 
   async closePacking(orderId: number, userId: number) {
-    if (!orderId) throw new BadRequestException('orderId es requerido');
+    return this.dataSource.transaction(async (manager) => {
+      const orderRepo = manager.getRepository(Order);
+      const detailRepo = manager.getRepository(OrderDetail);
+      const stockRepo = manager.getRepository(Stock);
+      const reservationRepo = manager.getRepository(StockReservation);
+      const movementRepo = manager.getRepository(InventoryMovement);
+      const escaneoRepo = manager.getRepository(Escaneo);
+      const productRepo = manager.getRepository(Product);
 
-    // 1) traer detalles del pedido
-    const details = await this.orderDetailRepo.find({ where: { order_id: orderId } as any });
-    if (!details.length) throw new BadRequestException('Pedido sin detalles');
+      /* ============================================================
+         1️⃣ VALIDAR PEDIDO
+      ============================================================ */
+      const order = await orderRepo.findOne({ where: { id: orderId } });
+      if (!order) throw new NotFoundException('Pedido no encontrado');
 
-    // 2) traer escaneos del pedido
-    const scans = await this.escaneoRepo.find({ where: { id_pedido: orderId } as any });
+      // 🔥 IDPOTENCIA
+      if (order.order_status_id >= OrderStatusEnum.ALISTADO) {
+        return { ok: true, message: 'Pedido ya procesado' };
+      }
 
-    // 3) map product_id -> article_code solo para los ids del pedido
-    const productIds = Array.from(new Set((details as any[]).map((d) => d.product_id)));
-    const products = await this.productRepo.find({
-      where: { id: (productIds as any) } as any,
-      select: ['id', 'article_code'] as any,
-    } as any);
-    const codeById = new Map(products.map((p: any) => [p.id, p.article_code]));
-
-    // 4) scan map code|size -> qty
-    const scanMap = new Map<string, number>();
-    for (const s of scans as any[]) {
-      const key = `${s.codigo_producto}|${s.talla}`;
-      scanMap.set(key, (scanMap.get(key) ?? 0) + Number(s.cantidad));
-    }
-
-    for (const d of details as any[]) {
-      const code = codeById.get(d.product_id);
-      const key = `${code}|${d.size}`;
-      const scanned = scanMap.get(key) ?? 0;
-      const ordered = Number(d.quantity);
-
-      if (scanned !== ordered) {
+      // 🔥 FLUJO CORRECTO
+      if (order.order_status_id !== OrderStatusEnum.APROBADO) {
         throw new BadRequestException(
-          `Packing incompleto: ${code} ${d.size}. Pedido=${ordered} Escaneado=${scanned}`,
+          'Solo pedidos aprobados pueden pasar a packing',
         );
       }
-    }
 
-    // ✅ aquí normalmente actualizas estado del pedido a PACKED y guardas historial
-    // (lo hacemos después cuando tengas OrderStatus claro)
+      const details = await detailRepo.find({
+        where: { order_id: orderId },
+      });
 
-    return { ok: true, message: 'Packing cerrado y completo' };
+      if (!details.length) {
+        throw new BadRequestException('Pedido sin detalles');
+      }
+
+      /* ============================================================
+         2️⃣ DATA NECESARIA (OPTIMIZADO)
+      ============================================================ */
+
+      const productIds = details.map((d: any) => d.product_id);
+
+      const products = await productRepo.find({
+        where: { id: productIds as any },
+        select: ['id', 'article_code'] as any,
+      });
+
+      const codeById = new Map(
+        products.map((p: any) => [p.id, p.article_code]),
+      );
+
+      const escaneos = await escaneoRepo.find({
+        where: { id_pedido: orderId } as any,
+      });
+
+      /* ============================================================
+         3️⃣ VALIDAR ESCANEOS INVÁLIDOS
+      ============================================================ */
+      for (const e of escaneos as any[]) {
+        const existe = details.some((d: any) => {
+          const code = codeById.get(d.product_id);
+          return code === e.codigo_producto && d.size === e.talla;
+        });
+
+        if (!existe) {
+          throw new BadRequestException(
+            `Escaneo inválido: ${e.codigo_producto} talla ${e.talla}`,
+          );
+        }
+      }
+
+      /* ============================================================
+         4️⃣ VALIDAR PACKING COMPLETO
+      ============================================================ */
+
+      const scanMap = new Map<string, number>();
+
+      escaneos.forEach((e: any) => {
+        const key = `${e.codigo_producto}|${e.talla}`;
+        scanMap.set(key, (scanMap.get(key) || 0) + Number(e.cantidad));
+      });
+
+      for (const d of details as any[]) {
+        const code = codeById.get(d.product_id);
+        const key = `${code}|${d.size}`;
+
+        const escaneado = scanMap.get(key) || 0;
+        const solicitado = Number(d.quantity);
+
+        if (escaneado < solicitado) {
+          throw new BadRequestException(
+            `Packing incompleto: ${code} talla ${d.size} → ${escaneado}/${solicitado}`,
+          );
+        }
+
+        if (escaneado > solicitado) {
+          throw new BadRequestException(
+            `Packing excedido: ${code} talla ${d.size}`,
+          );
+        }
+      }
+
+      /* ============================================================
+         5️⃣ VALIDAR RESERVAS
+      ============================================================ */
+      const reservas = await reservationRepo.find({
+        where: {
+          order_id: orderId,
+          status: StockReservationStatus.RESERVADO,
+        },
+      });
+
+      if (!reservas.length) {
+        throw new BadRequestException('No hay reservas para este pedido');
+      }
+
+      const totalReservado = reservas.reduce(
+        (acc, r) => acc + Number(r.quantity),
+        0,
+      );
+
+      const totalPedido = details.reduce(
+        (acc, d) => acc + Number(d.quantity),
+        0,
+      );
+
+      if (totalReservado < totalPedido) {
+        throw new BadRequestException('Reservas incompletas');
+      }
+
+      /* ============================================================
+         6️⃣ TRAER STOCK (OPTIMIZADO)
+      ============================================================ */
+      const stocks = await stockRepo.find({
+        where: {
+          warehouse_id: order.warehouse_id,
+          product_id: productIds as any,
+        },
+      });
+
+      const stockMap = new Map(
+        stocks.map(
+          (s) => [`${s.product_id}|${s.product_size_id ?? null}`, s],
+        ),
+      );
+
+      /* ============================================================
+         7️⃣ DESCONTAR STOCK + MOVIMIENTOS
+      ============================================================ */
+      for (const d of details as any[]) {
+        const key = `${d.product_id}|${d.product_size_id ?? null}`;
+        const stock = stockMap.get(key);
+
+        if (!stock) {
+          throw new BadRequestException('Stock no encontrado');
+        }
+
+        // 🔒 LOCK
+        await stockRepo.findOne({
+          where: { id: stock.id } as any,
+          lock: { mode: 'pessimistic_write' },
+        });
+
+        if (Number(stock.quantity) < Number(d.quantity)) {
+          throw new BadRequestException(
+            `Stock insuficiente al cerrar packing`,
+          );
+        }
+
+        // 👉 descontar
+        stock.quantity -= Number(d.quantity);
+        await stockRepo.save(stock);
+
+        // 👉 movimiento
+        await movementRepo.save(
+          movementRepo.create({
+            warehouse_id: order.warehouse_id,
+            product_id: d.product_id,
+            product_size_id: d.product_size_id ?? null,
+            quantity: d.quantity,
+            movement_type: 'OUT',
+            reference_id: order.id,
+            user_id: userId,
+            unit_of_measure: 'PAR', // 🔥 ajusta según negocio
+            remarks: `Salida por pedido ${order.id}`,
+          }),
+        );
+      }
+
+      /* ============================================================
+         8️⃣ CONSUMIR RESERVA
+      ============================================================ */
+      await reservationRepo.update(
+        {
+          order_id: orderId,
+          status: StockReservationStatus.RESERVADO,
+        },
+        {
+          status: StockReservationStatus.CONSUMIDO,
+        },
+      );
+
+      /* ============================================================
+         9️⃣ CAMBIAR ESTADO
+      ============================================================ */
+      order.order_status_id = OrderStatusEnum.ALISTADO;
+      await orderRepo.save(order);
+
+      return {
+        ok: true,
+        message: 'Packing cerrado correctamente',
+      };
+    });
   }
+
 
   async getScanStatus(orderId: number) {
-  const orderDetails = await this.orderDetailRepo.find({ where: { order_id: orderId } });
+    const orderDetails = await this.orderDetailRepo.find({
+      where: { order_id: orderId } as any,
+    });
 
-  // Si no existen detalles en el pedido, se lanza una excepción
-  if (!orderDetails.length) {
-    throw new BadRequestException('Pedido sin detalles');
+    if (!orderDetails.length) {
+      throw new BadRequestException('Pedido sin detalles');
+    }
+
+    const escaneos = await this.escaneoRepo.find({
+      where: { id_pedido: orderId } as any,
+    });
+
+    // 🔥 map product_id -> article_code
+    const productIds = Array.from(new Set(orderDetails.map((d: any) => d.product_id)));
+
+    const products = await this.productRepo.find({
+      where: { id: productIds as any },
+      select: ['id', 'article_code'] as any,
+    });
+
+    const codeById = new Map(products.map((p: any) => [p.id, p.article_code]));
+
+    // 🔥 scan map
+    const scanMap = new Map<string, number>();
+    escaneos.forEach((escaneo: any) => {
+      const key = `${escaneo.codigo_producto}|${escaneo.talla}`;
+      scanMap.set(key, (scanMap.get(key) || 0) + Number(escaneo.cantidad));
+    });
+
+    const status = orderDetails.map((detail: any) => {
+      const code = codeById.get(detail.product_id);
+      const key = `${code}|${detail.size}`;
+
+      const escaneado = scanMap.get(key) || 0;
+      const solicitado = Number(detail.quantity);
+
+      return {
+        codigo: code,
+        talla: detail.size,
+        escaneado,
+        solicitado,
+        completo: escaneado >= solicitado,
+      };
+    });
+
+    return status;
   }
 
-  // Mapeamos los escaneos registrados
-  const escaneos = await this.escaneoRepo.find({ where: { id_pedido: orderId } });
-
-  const scanMap = new Map<string, number>();
-  escaneos.forEach((escaneo) => {
-    const key = `${escaneo.codigo_producto}|${escaneo.talla}`;
-    // Asegúrate de sumar la cantidad escaneada correctamente
-    scanMap.set(key, (scanMap.get(key) || 0) + escaneo.cantidad);
-  });
-
-  // Comprobamos la cantidad escaneada y la cantidad solicitada para cada talla del pedido
-  const status = orderDetails.map((detail) => {
-    const key = `${detail.product_id}|${detail.size}`;
-    const escaneado = scanMap.get(key) || 0; // Total de lo escaneado
-    const solicitado = detail.quantity; // Cantidad solicitada en el pedido
-
-    return {
-      codigo: detail.product_id,
-      talla: detail.size,
-      escaneado,  // La cantidad escaneada de ese producto/talla
-      solicitado, // La cantidad solicitada de ese producto/talla
-      completo: escaneado >= solicitado, // Estado de si está completo o no
-    };
-  });
-
-  return status;
 }
 
-}
 
- 

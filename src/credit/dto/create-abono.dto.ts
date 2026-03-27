@@ -11,4 +11,6 @@ export class CreateAbonoDto {
 
   @IsString() moneda_abono: string; // PEN | USD
   @IsInt() usuario_id: number;
+  @IsString()
+  numero_operacion: string;
 }

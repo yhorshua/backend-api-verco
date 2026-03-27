@@ -17,6 +17,7 @@ import { Product } from '../database/entities/product.entity';
 import { StockReservation } from '../database/entities/stock_reservations.entity';
 import { StockReservationStatus } from '../database/entities/stock-reservation-status.enum';
 import { ListOrdersAdvancedDto } from './dto/list-orders-advanced.dto';
+import { OrderStatusEnum } from './dto/orderStatusEnum';
 
 
 @Injectable()
@@ -47,9 +48,13 @@ export class OrdersService {
      CREAR PEDIDO + RESERVAR STOCK
      ============================================================ */
   async createOrderAndReserveStock(dto: CreateOrderDto) {
-    if (!dto.items?.length) throw new BadRequestException('items es requerido');
-    if (!dto.warehouse_id)
+    if (!dto.items?.length) {
+      throw new BadRequestException('items es requerido');
+    }
+
+    if (!dto.warehouse_id) {
       throw new BadRequestException('warehouse_id es requerido');
+    }
 
     return this.dataSource.transaction(async (manager) => {
       const orderRepo = manager.getRepository(Order);
@@ -58,48 +63,94 @@ export class OrdersService {
       const reservationRepo = manager.getRepository(StockReservation);
       const productRepo = manager.getRepository(Product);
 
-      /* 1️⃣ Crear pedido */
+      /* ============================================================
+         1️⃣ AGRUPAR ITEMS (evita duplicados)
+      ============================================================ */
+      const groupedItems = new Map<string, any>();
+
+      for (const it of dto.items) {
+        const key = `${it.product_id}|${it.product_size_id ?? null}`;
+
+        if (!groupedItems.has(key)) {
+          groupedItems.set(key, { ...it });
+        } else {
+          groupedItems.get(key).quantity += it.quantity;
+        }
+      }
+
+      const items = Array.from(groupedItems.values());
+
+      /* ============================================================
+         2️⃣ CREAR PEDIDO
+      ============================================================ */
       const order = orderRepo.create({
         proforma_number: Date.now(),
         client_id: dto.client_id,
         user_id: dto.user_id,
         warehouse_id: dto.warehouse_id,
-        order_status_id: 1, // CREATED
+        order_status_id: OrderStatusEnum.PENDIENTE, // CREATED
       });
 
       const savedOrder = await orderRepo.save(order);
 
-      /* 2️⃣ Traer productos */
-      const productIds = dto.items.map((i) => i.product_id);
+      /* ============================================================
+         3️⃣ TRAER PRODUCTOS
+      ============================================================ */
+      const productIds = items.map((i) => i.product_id);
+
       const products = await productRepo.find({
         where: { id: In(productIds) },
       });
+
       const prodMap = new Map(products.map((p) => [p.id, p]));
 
-      /* 3️⃣ Validar y reservar stock */
-      for (const it of dto.items) {
+      /* ============================================================
+         4️⃣ TRAER STOCK (1 sola consulta)
+      ============================================================ */
+      const stocks = await stockRepo.find({
+        where: {
+          warehouse_id: dto.warehouse_id,
+          product_id: In(productIds),
+        },
+      });
+
+      const stockMap = new Map(
+        stocks.map(
+          (s) => [`${s.product_id}|${s.product_size_id ?? null}`, s],
+        ),
+      );
+
+      /* ============================================================
+         5️⃣ VALIDAR + RESERVAR
+      ============================================================ */
+      for (const it of items) {
         const product = prodMap.get(it.product_id);
-        if (!product)
-          throw new BadRequestException(`Producto no existe ${it.product_id}`);
 
-        // 🔒 Lock stock row
-        const stock = await stockRepo.findOne({
-          where: {
-            warehouse_id: dto.warehouse_id,
-            product_id: it.product_id,
-            product_size_id: it.product_size_id ?? null,
-          } as any,
-          lock: { mode: 'pessimistic_write' },
-        });
+        if (!product) {
+          throw new BadRequestException(
+            `Producto no existe ${it.product_id}`,
+          );
+        }
 
-        if (!stock)
+        const key = `${it.product_id}|${it.product_size_id ?? null}`;
+        const stock = stockMap.get(key);
+
+        if (!stock) {
           throw new BadRequestException(
             `No hay stock para ${product.article_code}`,
           );
+        }
 
-        // 🔎 Stock disponible = físico - reservas activas
+        // 🔒 LOCK fila de stock (importante para concurrencia)
+        await stockRepo.findOne({
+          where: { id: stock.id } as any,
+          lock: { mode: 'pessimistic_write' },
+        });
+
+        // 🔒 LOCK reservas también
         const reservedAgg = await reservationRepo
           .createQueryBuilder('r')
+          .setLock('pessimistic_write')
           .select('COALESCE(SUM(r.quantity),0)', 'qty')
           .where('r.warehouse_id = :w', { w: dto.warehouse_id })
           .andWhere('r.product_id = :p', { p: it.product_id })
@@ -109,11 +160,13 @@ export class OrdersService {
               : 'r.product_size_id IS NULL',
             { s: it.product_size_id },
           )
-          .andWhere('r.status = :st', { st: 'RESERVADO' })
+          .andWhere('r.status = :st', {
+            st: StockReservationStatus.RESERVADO,
+          })
           .getRawOne<{ qty: string }>();
 
-        const available =
-          Number(stock.quantity) - Number(reservedAgg?.qty ?? 0);
+        const reserved = Number(reservedAgg?.qty ?? 0);
+        const available = Number(stock.quantity) - reserved;
 
         if (available < it.quantity) {
           throw new BadRequestException(
@@ -121,7 +174,9 @@ export class OrdersService {
           );
         }
 
-        /* 4️⃣ Guardar detalle */
+        /* ============================================================
+           6️⃣ GUARDAR DETALLE
+        ============================================================ */
         await detailRepo.save(
           detailRepo.create({
             order_id: savedOrder.id,
@@ -136,7 +191,9 @@ export class OrdersService {
           } as any),
         );
 
-        /* 5️⃣ Crear reserva */
+        /* ============================================================
+           7️⃣ CREAR RESERVA
+        ============================================================ */
         await reservationRepo.save(
           reservationRepo.create({
             order_id: savedOrder.id,
@@ -145,6 +202,7 @@ export class OrdersService {
             product_size_id: it.product_size_id ?? null,
             quantity: it.quantity,
             status: StockReservationStatus.RESERVADO,
+            created_by: dto.user_id, // 🔥 auditoría
           }),
         );
       }
@@ -158,9 +216,13 @@ export class OrdersService {
      ============================================================ */
   async approveOrder(orderId: number, approvedBy: number) {
     const order = await this.orderRepo.findOne({ where: { id: orderId } });
+
     if (!order) throw new NotFoundException('Pedido no encontrado');
 
-    order.order_status_id = 2; // APROBADO
+    if (order.order_status_id !== OrderStatusEnum.PENDIENTE) {
+      throw new BadRequestException('Solo pedidos pendientes pueden aprobarse');
+    }
+    order.order_status_id = OrderStatusEnum.APROBADO; // APROBADO
     order.approved_by = approvedBy;
     order.approval_date = new Date();
 
@@ -179,6 +241,10 @@ export class OrdersService {
       const order = await orderRepo.findOne({ where: { id: orderId } });
       if (!order) throw new NotFoundException('Pedido no encontrado');
 
+      if (order.order_status_id !== OrderStatusEnum.PENDIENTE) {
+        throw new BadRequestException('Solo pedidos pendientes pueden rechazarse');
+      }
+
       await reservationRepo.update(
         {
           order_id: orderId,
@@ -189,7 +255,7 @@ export class OrdersService {
         },
       );
 
-      order.order_status_id = 3; // RECHAZADO
+      order.order_status_id = OrderStatusEnum.RECHAZADO; // RECHAZADO
       order.observations = reason ?? order.observations;
       await orderRepo.save(order);
 
@@ -283,15 +349,20 @@ export class OrdersService {
         },
         vendedor: o.user?.full_name ?? '',
         fechaRegistro: o.request_date?.toISOString().split('T')[0] ?? '',
-        estado: o.order_status_id === 1
-          ? 'Pendiente'
-          : o.order_status_id === 2
-            ? 'Aprobado'
-            : o.order_status_id === 3
-              ? 'Rechazado'
-              : o.order_status_id === 4
-                ? 'Alistado'
-                : 'Facturado',
+        estado:
+          o.order_status_id === OrderStatusEnum.PENDIENTE
+            ? 'Pendiente'
+            : o.order_status_id === OrderStatusEnum.APROBADO
+              ? 'Aprobado'
+              : o.order_status_id === OrderStatusEnum.RECHAZADO
+                ? 'Rechazado'
+                : o.order_status_id === OrderStatusEnum.EN_ALISTAMIENTO
+                  ? 'En Alistamiento'
+                  : o.order_status_id === OrderStatusEnum.ALISTADO
+                    ? 'Alistado'
+                    : o.order_status_id === OrderStatusEnum.FACTURADO
+                      ? 'Facturado'
+                      : 'Desconocido',
         totalUnidades,
         totalPrecio,
         items,
