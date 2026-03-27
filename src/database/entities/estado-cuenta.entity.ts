@@ -4,7 +4,8 @@ import { Client } from './client.entity';
 import { User } from './user.entity';
 import { GuiaInterna } from './guia-interna.entity';
 
-@Entity('EstadoCuenta')
+
+@Entity('estado_cuenta')
 export class EstadoCuenta {
   @PrimaryGeneratedColumn({ name: 'id_estado_cuenta' })
   id: number;

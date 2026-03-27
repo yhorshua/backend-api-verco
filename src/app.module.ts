@@ -46,6 +46,11 @@ import { AttendanceModule } from './markAttendance/markAttendance.module';
 import { SaleModule } from './sale/sales.module';
 import { SaleReturn } from './database/entities/sale-return.entity';
 import { Cuota } from './database/entities/cuota.entity';
+import { EstadoCuenta } from './database/entities/estado-cuenta.entity';
+import { Abono } from './database/entities/abono.entity';
+import { EstadoCuentaHistorial } from './database/entities/estado-cuenta-historial.entity';
+import { GuiaInterna } from './database/entities/guia-interna.entity';
+import { GuiaInternaDetalle } from './database/entities/guia-interna-detalle.entity';
 
 @Module({
   imports: [
@@ -91,6 +96,13 @@ import { Cuota } from './database/entities/cuota.entity';
         Attendance,
         SaleReturn,
         Cuota,
+        EstadoCuenta,
+        Abono,
+        EstadoCuentaHistorial,
+        GuiaInterna,
+        GuiaInternaDetalle,
+        
+
       ],
     }),
 
