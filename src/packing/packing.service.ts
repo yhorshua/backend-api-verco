@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, In, Repository } from 'typeorm';
 
 import { ScanItemDto } from './dto/scan-item.dto';
 import { Escaneo } from '../database/entities/escaneo.entity';
@@ -138,9 +138,9 @@ export class PackingService {
       }
 
       // 🔥 FLUJO CORRECTO
-      if (order.order_status_id !== OrderStatusEnum.APROBADO) {
+      if (order.order_status_id !== OrderStatusEnum.EN_ALISTAMIENTO) {
         throw new BadRequestException(
-          'Solo pedidos aprobados pueden pasar a packing',
+          'El pedido no está en alistamiento',
         );
       }
 
@@ -224,10 +224,13 @@ export class PackingService {
       const reservas = await reservationRepo.find({
         where: {
           order_id: orderId,
-          status: StockReservationStatus.RESERVADO,
+          status: In([
+            StockReservationStatus.RESERVADO,
+            // 🔥 soporta dropshipping si agregas DIRECTO
+            StockReservationStatus.DIRECTO as any,
+          ]),
         },
       });
-
       if (!reservas.length) {
         throw new BadRequestException('No hay reservas para este pedido');
       }
@@ -311,7 +314,10 @@ export class PackingService {
       await reservationRepo.update(
         {
           order_id: orderId,
-          status: StockReservationStatus.RESERVADO,
+          status: In([
+            StockReservationStatus.RESERVADO,
+            StockReservationStatus.DIRECTO,
+          ]),
         },
         {
           status: StockReservationStatus.CONSUMIDO,
@@ -379,6 +385,29 @@ export class PackingService {
     });
 
     return status;
+  }
+
+  async startPacking(orderId: number) {
+    return this.dataSource.transaction(async (manager) => {
+      const orderRepo = manager.getRepository(Order);
+
+      const order = await orderRepo.findOne({
+        where: { id: orderId },
+        lock: { mode: 'pessimistic_write' },
+      });
+
+      if (!order) throw new NotFoundException('Pedido no encontrado');
+
+      if (order.order_status_id !== OrderStatusEnum.APROBADO) {
+        throw new BadRequestException('Pedido no válido para packing');
+      }
+
+      order.order_status_id = OrderStatusEnum.EN_ALISTAMIENTO;
+
+      await orderRepo.save(order);
+
+      return { ok: true, message: 'Packing iniciado' };
+    });
   }
 
 }

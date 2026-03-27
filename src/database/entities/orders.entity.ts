@@ -3,16 +3,24 @@ import {
   PrimaryGeneratedColumn,
   Column,
   ManyToOne,
-  OneToMany, // <- agregar
+  OneToMany, 
   JoinColumn,
+  Index,
 } from 'typeorm';
 
 import { Client } from './client.entity';
 import { User } from './user.entity';
 import { OrderStatus } from './order-status.entity';
-import { OrderDetail } from './order-details.entity'; // <- agregar
+import { OrderDetail } from './order-details.entity';
+import { OrderTypeEnum, PaymentMethodEnum, PaymentStatusEnum } from '../../orders/dto/orderEnum';
+
+
 
 @Entity('Orders')
+@Index(['client_id'])
+@Index(['user_id'])
+@Index(['order_status_id'])
+@Index(['warehouse_id'])
 export class Order {
   @PrimaryGeneratedColumn()
   id: number;
@@ -49,7 +57,7 @@ export class Order {
   request_date: Date;
 
   // APROBACIONES
-  @Column({ nullable: true })
+  @Column({ type: 'int', nullable: true })
   approved_by: number;
 
   @ManyToOne(() => User)
@@ -80,12 +88,19 @@ export class Order {
   details: OrderDetail[];
 
   // 🔥 NUEVO: TIPO DE ORDEN
-  @Column({ default: 'NORMAL' })
-  order_type: 'NORMAL' | 'DROPSHIPPING';
+  @Column({
+    type: 'enum',
+    enum: OrderTypeEnum,
+    default: OrderTypeEnum.NORMAL,
+  })
+  order_type: OrderTypeEnum;
 
-  // 🔥 NUEVO: ESTADO DE PAGO
-  @Column({ default: 'PENDIENTE' })
-  payment_status: 'PENDIENTE' | 'PAGADO';
+  @Column({
+    type: 'enum',
+    enum: PaymentStatusEnum,
+    default: PaymentStatusEnum.PENDIENTE,
+  })
+  payment_status: PaymentStatusEnum;
 
   // 🔥 NUEVO: REFERENCIA DE PAGO
   @Column({ nullable: true })
@@ -97,4 +112,21 @@ export class Order {
 
   @Column({ nullable: true })
   shipping_reference?: string;
+
+  @Column({
+    type: 'enum',
+    enum: PaymentMethodEnum,
+    nullable: true,
+  })
+  payment_method?: PaymentMethodEnum;
+
+  @Column({ type: 'datetime', default: () => 'CURRENT_TIMESTAMP' })
+  created_at: Date;
+
+  @Column({ type: 'datetime', nullable: true })
+  updated_at: Date;
+
+  isDropshipping(): boolean {
+  return this.order_type === OrderTypeEnum.DROPSHIPPING;
+}
 }

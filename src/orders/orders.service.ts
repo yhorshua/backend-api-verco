@@ -52,8 +52,10 @@ export class OrdersService {
       throw new BadRequestException('items es requerido');
     }
 
-    if (!dto.warehouse_id) {
-      throw new BadRequestException('warehouse_id es requerido');
+    const isDropshipping = dto.order_type === 'DROPSHIPPING';
+
+    if (isDropshipping && !dto.payment_reference) {
+      throw new BadRequestException('Debe enviar referencia de pago');
     }
 
     return this.dataSource.transaction(async (manager) => {
@@ -63,9 +65,7 @@ export class OrdersService {
       const reservationRepo = manager.getRepository(StockReservation);
       const productRepo = manager.getRepository(Product);
 
-      /* ============================================================
-         1️⃣ AGRUPAR ITEMS (evita duplicados)
-      ============================================================ */
+      // AGRUPAR ITEMS
       const groupedItems = new Map<string, any>();
 
       for (const it of dto.items) {
@@ -80,22 +80,27 @@ export class OrdersService {
 
       const items = Array.from(groupedItems.values());
 
-      /* ============================================================
-         2️⃣ CREAR PEDIDO
-      ============================================================ */
+      // CREAR ORDEN
       const order = orderRepo.create({
         proforma_number: Date.now(),
         client_id: dto.client_id,
         user_id: dto.user_id,
         warehouse_id: dto.warehouse_id,
-        order_status_id: OrderStatusEnum.PENDIENTE, // CREATED
-      });
 
-      const savedOrder = await orderRepo.save(order);
+        order_type: dto.order_type ?? 'NORMAL',
 
-      /* ============================================================
-         3️⃣ TRAER PRODUCTOS
-      ============================================================ */
+        payment_status: isDropshipping ? 'PAGADO' : 'PENDIENTE',
+        payment_reference: dto.payment_reference ?? null,
+
+        order_status_id: isDropshipping
+          ? OrderStatusEnum.APROBADO
+          : OrderStatusEnum.PENDIENTE,
+
+        approval_date: isDropshipping ? new Date() : null,
+      } as Partial<Order>);
+
+      const savedOrder = await orderRepo.save(order as Order);
+
       const productIds = items.map((i) => i.product_id);
 
       const products = await productRepo.find({
@@ -104,9 +109,6 @@ export class OrdersService {
 
       const prodMap = new Map(products.map((p) => [p.id, p]));
 
-      /* ============================================================
-         4️⃣ TRAER STOCK (1 sola consulta)
-      ============================================================ */
       const stocks = await stockRepo.find({
         where: {
           warehouse_id: dto.warehouse_id,
@@ -115,96 +117,79 @@ export class OrdersService {
       });
 
       const stockMap = new Map(
-        stocks.map(
-          (s) => [`${s.product_id}|${s.product_size_id ?? null}`, s],
-        ),
+        stocks.map((s) => [`${s.product_id}|${s.product_size_id ?? null}`, s]),
       );
 
-      /* ============================================================
-         5️⃣ VALIDAR + RESERVAR
-      ============================================================ */
       for (const it of items) {
         const product = prodMap.get(it.product_id);
-
-        if (!product) {
-          throw new BadRequestException(
-            `Producto no existe ${it.product_id}`,
-          );
-        }
+        if (!product) throw new BadRequestException('Producto no existe');
 
         const key = `${it.product_id}|${it.product_size_id ?? null}`;
         const stock = stockMap.get(key);
 
-        if (!stock) {
-          throw new BadRequestException(
-            `No hay stock para ${product.article_code}`,
-          );
-        }
+        if (!stock) throw new BadRequestException('No hay stock');
 
-        // 🔒 LOCK fila de stock (importante para concurrencia)
         await stockRepo.findOne({
           where: { id: stock.id } as any,
           lock: { mode: 'pessimistic_write' },
         });
 
-        // 🔒 LOCK reservas también
-        const reservedAgg = await reservationRepo
-          .createQueryBuilder('r')
-          .setLock('pessimistic_write')
-          .select('COALESCE(SUM(r.quantity),0)', 'qty')
-          .where('r.warehouse_id = :w', { w: dto.warehouse_id })
-          .andWhere('r.product_id = :p', { p: it.product_id })
-          .andWhere(
-            it.product_size_id
-              ? 'r.product_size_id = :s'
-              : 'r.product_size_id IS NULL',
-            { s: it.product_size_id },
-          )
-          .andWhere('r.status = :st', {
-            st: StockReservationStatus.RESERVADO,
-          })
-          .getRawOne<{ qty: string }>();
+        // VALIDAR DISPONIBLE (sin reservas en dropshipping)
+        let available = Number(stock.quantity);
 
-        const reserved = Number(reservedAgg?.qty ?? 0);
-        const available = Number(stock.quantity) - reserved;
+        if (!isDropshipping) {
+          const reservedAgg = await reservationRepo
+            .createQueryBuilder('r')
+            .select('COALESCE(SUM(r.quantity),0)', 'qty')
+            .where('r.product_id = :p', { p: it.product_id })
+            .andWhere('r.status = :st', {
+              st: StockReservationStatus.RESERVADO,
+            })
+            .getRawOne();
 
-        if (available < it.quantity) {
-          throw new BadRequestException(
-            `Stock insuficiente ${product.article_code}. Disponible ${available}`,
-          );
+          const reserved = Number(reservedAgg?.qty ?? 0);
+          available -= reserved;
         }
 
-        /* ============================================================
-           6️⃣ GUARDAR DETALLE
-        ============================================================ */
-        await detailRepo.save(
-          detailRepo.create({
-            order_id: savedOrder.id,
-            product_id: it.product_id,
-            product_size_id: it.product_size_id ?? null,
-            size: it.size,
-            quantity: it.quantity,
-            unit_price: it.unit_price,
-            total_amount: Number(
-              (it.quantity * Number(it.unit_price)).toFixed(2),
-            ),
-          } as any),
-        );
+        if (available < it.quantity) {
+          throw new BadRequestException('Stock insuficiente');
+        }
 
-        /* ============================================================
-           7️⃣ CREAR RESERVA
-        ============================================================ */
-        await reservationRepo.save(
-          reservationRepo.create({
+        // DETALLE
+        await detailRepo.save({
+          order_id: savedOrder.id,
+          product_id: it.product_id,
+          product_size_id: it.product_size_id ?? null,
+          size: it.size,
+          quantity: it.quantity,
+          unit_price: it.unit_price,
+          total_amount: it.quantity * Number(it.unit_price),
+        });
+
+        // RESERVA SOLO NORMAL
+        if (!isDropshipping) {
+          await reservationRepo.save({
             order_id: savedOrder.id,
             warehouse_id: dto.warehouse_id,
             product_id: it.product_id,
             product_size_id: it.product_size_id ?? null,
             quantity: it.quantity,
             status: StockReservationStatus.RESERVADO,
-            created_by: dto.user_id, // 🔥 auditoría
-          }),
-        );
+            created_by: dto.user_id,
+          });
+        }
+
+        if (isDropshipping) {
+          await reservationRepo.save({
+            order_id: savedOrder.id,
+            warehouse_id: dto.warehouse_id,
+            product_id: it.product_id,
+            product_size_id: it.product_size_id ?? null,
+            quantity: it.quantity,
+            status: StockReservationStatus.DIRECTO, // 🔥
+            created_by: dto.user_id,
+          });
+        }
       }
 
       return { order: savedOrder };
@@ -370,81 +355,7 @@ export class OrdersService {
     });
   }
 
-  async createDropshippingOrder(dto: CreateOrderDto & { payment_reference: string }) {
-    if (!dto.payment_reference) {
-      throw new BadRequestException('Debe enviar referencia de pago');
-    }
 
-    return this.dataSource.transaction(async (manager) => {
-      const orderRepo = manager.getRepository(Order);
-      const detailRepo = manager.getRepository(OrderDetail);
-      const productRepo = manager.getRepository(Product);
-      const stockRepo = manager.getRepository(Stock);
-
-      if (!dto.items?.length) {
-        throw new BadRequestException('items requerido');
-      }
-
-      /* ============================================================
-         VALIDAR STOCK (pero NO reservar)
-      ============================================================ */
-      for (const it of dto.items) {
-        const stock = await stockRepo.findOne({
-          where: {
-            product_id: it.product_id,
-            warehouse_id: dto.warehouse_id,
-          },
-        });
-
-        if (!stock || Number(stock.quantity) < it.quantity) {
-          throw new BadRequestException(
-            `Stock insuficiente para producto ${it.product_id}`,
-          );
-        }
-      }
-
-      /* ============================================================
-         CREAR ORDEN YA APROBADA
-      ============================================================ */
-      const order = orderRepo.create({
-        proforma_number: Date.now(),
-        client_id: dto.client_id,
-        user_id: dto.user_id,
-        warehouse_id: dto.warehouse_id,
-
-        order_type: 'DROPSHIPPING',
-        payment_status: 'PAGADO',
-        payment_reference: dto.payment_reference,
-
-        order_status_id: OrderStatusEnum.APROBADO, // 🔥 directo aprobado
-        approval_date: new Date(),
-      });
-
-      const savedOrder = await orderRepo.save(order);
-
-      /* ============================================================
-         DETALLES
-      ============================================================ */
-      for (const it of dto.items) {
-        await detailRepo.save(
-          detailRepo.create({
-            order_id: savedOrder.id,
-            product_id: it.product_id,
-            product_size_id: it.product_size_id ?? null,
-            quantity: it.quantity,
-            unit_price: it.unit_price,
-            total_amount: it.quantity * Number(it.unit_price),
-          } as any),
-        );
-      }
-
-      return {
-        ok: true,
-        order: savedOrder,
-        message: 'Pedido dropshipping creado y aprobado automáticamente',
-      };
-    });
-  }
 }
 
 
