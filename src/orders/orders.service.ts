@@ -80,6 +80,7 @@ export class OrdersService {
 
       const items = Array.from(groupedItems.values());
       const lastOrder = await orderRepo.findOne({
+        where: {}, // 👈 obligatorio
         order: { id: 'DESC' },
       });
 
