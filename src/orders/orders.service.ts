@@ -79,10 +79,15 @@ export class OrdersService {
       }
 
       const items = Array.from(groupedItems.values());
+      const lastOrder = await orderRepo.findOne({
+        order: { id: 'DESC' },
+      });
+
+      const nextProforma = (lastOrder?.proforma_number ?? 0) + 1;
 
       // CREAR ORDEN
       const order = orderRepo.create({
-        proforma_number: Date.now(),
+        proforma_number: nextProforma,
         client_id: dto.client_id,
         user_id: dto.user_id,
         warehouse_id: dto.warehouse_id,
