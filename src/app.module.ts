@@ -45,6 +45,7 @@ import { Attendance } from './database/entities/marcacion.entity';
 import { AttendanceModule } from './markAttendance/markAttendance.module';
 import { SaleModule } from './sale/sales.module';
 import { SaleReturn } from './database/entities/sale-return.entity';
+import { Cuota } from './database/entities/cuota.entity';
 
 @Module({
   imports: [
@@ -89,6 +90,7 @@ import { SaleReturn } from './database/entities/sale-return.entity';
         Category,
         Attendance,
         SaleReturn,
+        Cuota,
       ],
     }),
 
