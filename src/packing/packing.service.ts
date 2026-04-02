@@ -94,14 +94,9 @@ export class PackingService {
       let orderMap = this.orderCache.get(dto.order_id);
 
       if (!orderMap) {
-        const details = await manager.query(
-          `
-          SELECT product_id, size, quantity
-          FROM order_details
-          WHERE order_id = ?
-        `,
-          [dto.order_id],
-        );
+        const details = await manager.getRepository(OrderDetail).find({
+          where: { order_id: dto.order_id } as any,
+        });
 
         if (!details.length) {
           throw new BadRequestException('Pedido sin detalles');
