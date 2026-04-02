@@ -5,9 +5,9 @@ import { ClosePackingDto } from './dto/close-packing.dto';
 
 @Controller('packing')
 export class PackingController {
-  constructor(private readonly service: PackingService) {}
+  constructor(private readonly service: PackingService) { }
 
-   @Get('scan-status/:orderId')
+  @Get('scan-status/:orderId')
   async getScanStatus(@Param('orderId') orderId: string) {
     return this.service.getScanStatus(Number(orderId));
   }
@@ -25,5 +25,10 @@ export class PackingController {
   @Post('close')
   close(@Body() dto: ClosePackingDto) {
     return this.service.closePacking(dto.order_id, dto.user_id);
+  }
+
+  @Post('start/:orderId')
+  startPacking(@Param('orderId') orderId: string) {
+    return this.service.startPacking(Number(orderId));
   }
 }
