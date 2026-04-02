@@ -156,10 +156,10 @@ export class PackingService {
          2️⃣ DATA NECESARIA (OPTIMIZADO)
       ============================================================ */
 
-      const productIds = details.map((d: any) => d.product_id);
+      const productIds = [...new Set(details.map((d: any) => d.product_id))];
 
       const products = await productRepo.find({
-        where: { id: productIds as any },
+        where: { id: In(productIds) },
         select: ['id', 'article_code'] as any,
       });
 
