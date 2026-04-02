@@ -28,6 +28,15 @@ export class PackingService {
     private readonly productRepo: Repository<Product>,
   ) { }
 
+  private productCache = new Map<string, number>();
+
+  private orderCache = new Map<
+    number,
+    Map<string, { product_id: number; orderedQty: number }>
+  >();
+
+  private scanCache = new Map<string, number>();
+
   async getPacking(orderId: number) {
     const scans = await this.escaneoRepo.find({
       where: { id_pedido: orderId } as any,
@@ -48,73 +57,123 @@ export class PackingService {
 
   async scanItem(dto: ScanItemDto) {
     if (!dto.order_id) throw new BadRequestException('order_id es requerido');
-    if (!dto.codigo_producto?.trim()) throw new BadRequestException('codigo_producto es requerido');
-    if (!dto.talla?.trim()) throw new BadRequestException('talla es requerido');
+    if (!dto.codigo_producto?.trim())
+      throw new BadRequestException('codigo_producto es requerido');
+    if (!dto.talla?.trim())
+      throw new BadRequestException('talla es requerido');
     if (!Number.isFinite(dto.cantidad) || dto.cantidad <= 0) {
       throw new BadRequestException('cantidad debe ser > 0');
     }
 
+    const codigo = dto.codigo_producto.trim().toUpperCase();
+    const talla = dto.talla.trim().toUpperCase();
+
     return this.dataSource.transaction(async (manager) => {
-      const escaneoRepo = manager.getRepository(Escaneo);
-      const orderDetailRepo = manager.getRepository(OrderDetail);
-      const productRepo = manager.getRepository(Product);
+      /* ============================================================
+         1️⃣ PRODUCT CACHE
+      ============================================================ */
+      let productId = this.productCache.get(codigo);
 
-      // 1) validar contra Order_Details
-      const details = await orderDetailRepo.find({ where: { order_id: dto.order_id } as any });
-      if (!details.length) throw new BadRequestException('Pedido sin detalles');
+      if (!productId) {
+        const product = await manager.findOne(Product, {
+          where: { article_code: codigo } as any,
+          select: ['id'] as any,
+        });
 
-      // 2) convertir codigo_producto -> product_id (sin traer toda la tabla)
-      const product = await productRepo.findOne({
-        where: { article_code: dto.codigo_producto } as any,
-        select: ['id', 'article_code'] as any,
-      });
-      if (!product) throw new BadRequestException(`Código no existe: ${dto.codigo_producto}`);
+        if (!product) {
+          throw new BadRequestException(`Código no existe: ${codigo}`);
+        }
 
-      const line = await orderDetailRepo.findOne({
-        where: {
-          order_id: dto.order_id,
-          product_id: product.id,
-          size: dto.talla,
-        } as any,
-        lock: { mode: 'pessimistic_write' },
-      });
+        productId = product.id;
+        this.productCache.set(codigo, productId);
+      }
+
+      /* ============================================================
+         2️⃣ ORDER CACHE (🔥 SOLO SE CARGA UNA VEZ)
+      ============================================================ */
+      let orderMap = this.orderCache.get(dto.order_id);
+
+      if (!orderMap) {
+        const details = await manager.query(
+          `
+          SELECT product_id, size, quantity
+          FROM order_details
+          WHERE order_id = ?
+        `,
+          [dto.order_id],
+        );
+
+        if (!details.length) {
+          throw new BadRequestException('Pedido sin detalles');
+        }
+
+        orderMap = new Map();
+
+        for (const d of details) {
+          const key = `${d.product_id}|${String(d.size).toUpperCase()}`;
+          orderMap.set(key, {
+            product_id: d.product_id,
+            orderedQty: Number(d.quantity),
+          });
+        }
+
+        this.orderCache.set(dto.order_id, orderMap);
+      }
+
+      const key = `${productId}|${talla}`;
+      const line = orderMap.get(key);
+
       if (!line) {
         throw new BadRequestException(
-          `El producto/talla no está en el pedido: ${dto.codigo_producto} ${dto.talla}`,
+          `Producto/talla no pertenece al pedido`,
         );
       }
 
-      // 3) sumar escaneado actual (solo de ese producto/talla)
-      const scannedAgg = await escaneoRepo
-        .createQueryBuilder('e')
-        .select('COALESCE(SUM(e.cantidad), 0)', 'qty')
-        .where('e.id_pedido = :orderId', { orderId: dto.order_id })
-        .andWhere('e.codigo_producto = :code', { code: dto.codigo_producto })
-        .andWhere('e.talla = :talla', { talla: dto.talla })
-        .getRawOne<{ qty: string | number }>();
+      /* ============================================================
+         3️⃣ SCAN CACHE (🔥 0 QUERIES VALIDACIÓN)
+      ============================================================ */
+      const scanKey = `${dto.order_id}|${codigo}|${talla}`;
 
-      const scannedQty = Number(scannedAgg?.qty ?? 0);
-      const orderedQty = Number((line as any).quantity);
+      const scannedQty = this.scanCache.get(scanKey) || 0;
+      const orderedQty = line.orderedQty;
 
-      if (scannedQty + Number(dto.cantidad) > orderedQty) {
+      if (scannedQty + dto.cantidad > orderedQty) {
         throw new BadRequestException(
           `Excede lo pedido. Pedido=${orderedQty} Escaneado=${scannedQty}`,
         );
       }
 
-      // 4) guardar escaneo
-      const esc = escaneoRepo.create({
-        id_pedido: dto.order_id,
-        codigo_producto: dto.codigo_producto,
-        talla: dto.talla,
-        cantidad: dto.cantidad,
-      } as any);
+      // actualizar cache en memoria
+      this.scanCache.set(scanKey, scannedQty + dto.cantidad);
 
-      await escaneoRepo.save(esc);
+      /* ============================================================
+         4️⃣ INSERT DIRECTO (ULTRA RÁPIDO)
+      ============================================================ */
+      await manager.insert(Escaneo, {
+        id_pedido: dto.order_id,
+        codigo_producto: codigo,
+        talla,
+        cantidad: dto.cantidad,
+      });
 
       return { ok: true };
     });
   }
+
+  /* ============================================================
+     🧹 LIMPIAR CACHE CUANDO TERMINA PACKING
+  ============================================================ */
+  clearOrderCache(orderId: number) {
+    this.orderCache.delete(orderId);
+
+    // limpiar scans relacionados
+    for (const key of this.scanCache.keys()) {
+      if (key.startsWith(orderId + '|')) {
+        this.scanCache.delete(key);
+      }
+    }
+  }
+
 
   async closePacking(orderId: number, userId: number) {
     return this.dataSource.transaction(async (manager) => {
