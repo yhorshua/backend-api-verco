@@ -554,6 +554,8 @@ export class ReportsService {
           product_id: d.product_id,
           article_code: d.product.article_code,
           article_description: d.product.article_description,
+          category_id: d.product.category?.id ?? null,
+          category_name: d.product.category?.name ?? 'SIN CATEGORIA',
           size: d.productSize?.size ?? null,
           quantity: String(d.quantity),
           unit_price: String(d.unit_price),
