@@ -4,7 +4,8 @@ export enum OrderStatusEnum {
   RECHAZADO = 3,
   EN_ALISTAMIENTO = 4,
   ALISTADO = 5,
-  DESPACHADO = 6,
-  FACTURADO = 7,
-  CERRADO = 8,
+  GUIA_INTERNA_GENERADA = 6,
+  DESPACHADO = 7,
+  FACTURADO = 8,
+  CERRADO = 9,
 }

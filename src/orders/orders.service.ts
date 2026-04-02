@@ -357,8 +357,14 @@ export class OrdersService {
                   ? 'En Alistamiento'
                   : o.order_status_id === OrderStatusEnum.ALISTADO
                     ? 'Alistado'
+                    : o.order_status_id === OrderStatusEnum.GUIA_INTERNA_GENERADA
+                    ? 'Guia Interna Generada'
+                    : o.order_status_id === OrderStatusEnum.DESPACHADO
+                    ? 'Despachado'
                     : o.order_status_id === OrderStatusEnum.FACTURADO
                       ? 'Facturado'
+                      : o.order_status_id === OrderStatusEnum.CERRADO
+                    ? 'Cerrado'
                       : 'Desconocido',
         totalUnidades,
         totalPrecio,
