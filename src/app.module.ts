@@ -51,6 +51,7 @@ import { Abono } from './database/entities/abono.entity';
 import { EstadoCuentaHistorial } from './database/entities/estado-cuenta-historial.entity';
 import { GuiaInterna } from './database/entities/guia-interna.entity';
 import { GuiaInternaDetalle } from './database/entities/guia-interna-detalle.entity';
+import { GuiaInternaModule } from './guia-interna/guia-interna.module';
 
 @Module({
   imports: [
@@ -122,6 +123,7 @@ import { GuiaInternaDetalle } from './database/entities/guia-interna-detalle.ent
     CategoriesModule,
     AttendanceModule,
     SaleModule,
+    GuiaInternaModule,
   ],
   controllers: [AppController],
   providers: [AppService],
