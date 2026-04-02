@@ -40,6 +40,11 @@ export class UsersController {
   async update(@Param('id') id: number, @Body() userData: any) {
     return this.usersService.update(id, userData);
   }
-
+  @UseGuards(JwtAuthGuard)
+  @Get('sellers-by-warehouse')
+  @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
+  async getSellersByWarehouse(@Query() dto: SellersByWarehouseQueryDto) {
+    return this.usersService.getSellersByWarehouse(dto);
+  }
 
 }

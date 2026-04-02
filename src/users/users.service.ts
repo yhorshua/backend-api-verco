@@ -4,7 +4,7 @@ import { Repository } from 'typeorm';
 import { User } from '../database/entities/user.entity';
 import * as bcrypt from 'bcrypt';
 import { CreateUserDto } from './create-user.dto';
-import {SellersByWarehouseQueryDto} from './dto/sellers-by-warehouse.query.dto'
+import { SellersByWarehouseQueryDto } from './dto/sellers-by-warehouse.query.dto'
 import { Role } from 'src/database/entities/role.entity';
 import { Warehouse } from 'src/database/entities/warehouse.entity';
 
@@ -15,21 +15,21 @@ export type WarehouseUserOption = {
 
 @Injectable()
 export class UsersService {
-    constructor(
+  constructor(
     @InjectRepository(User) private readonly userRepo: Repository<User>,
     @InjectRepository(Role) private readonly roleRepo: Repository<Role>,
     @InjectRepository(Warehouse) private readonly warehouseRepo: Repository<Warehouse>,
-  ) {}
+  ) { }
 
-    async findAll(): Promise<User[]> {
-        return this.userRepo.find({ relations: ['role'] });
-    }
+  async findAll(): Promise<User[]> {
+    return this.userRepo.find({ relations: ['role'] });
+  }
 
-    async findOne(id: number): Promise<User | null> {
-        return this.userRepo.findOne({ where: { id }, relations: ['role'] });
-    }
+  async findOne(id: number): Promise<User | null> {
+    return this.userRepo.findOne({ where: { id }, relations: ['role'] });
+  }
 
-    async create(dto: CreateUserDto) {
+  async create(dto: CreateUserDto) {
     const email = dto.email.trim().toLowerCase();
 
     const exists = await this.userRepo.findOne({ where: { email } as any });
@@ -64,36 +64,60 @@ export class UsersService {
     const { password_hash: _, ...safe } = saved as any;
     return safe;
   }
-    async update(id: number, userData: any): Promise<User | null> {
-        if (userData.password) {
-            userData.password_hash = await bcrypt.hash(userData.password, 10);
-            delete userData.password;
-        }
-
-        await this.userRepo.update(id, userData);
-        return this.findOne(id); // devuelve User | null
+  async update(id: number, userData: any): Promise<User | null> {
+    if (userData.password) {
+      userData.password_hash = await bcrypt.hash(userData.password, 10);
+      delete userData.password;
     }
 
-     async findByEmail(email: string): Promise<User | null> {
-    return this.userRepo.findOne({ where: { email }, relations:['role', 'warehouse'] });
+    await this.userRepo.update(id, userData);
+    return this.findOne(id); // devuelve User | null
+  }
+
+  async findByEmail(email: string): Promise<User | null> {
+    return this.userRepo.findOne({ where: { email }, relations: ['role', 'warehouse'] });
   }
 
   async getUsersByWarehouse(dto: SellersByWarehouseQueryDto) {
-  const { warehouseId } = dto;
+    const { warehouseId } = dto;
 
-  if (!Number.isInteger(warehouseId) || warehouseId < 1) {
-    throw new BadRequestException('warehouseId inválido');
+    if (!Number.isInteger(warehouseId) || warehouseId < 1) {
+      throw new BadRequestException('warehouseId inválido');
+    }
+
+    const users = await this.userRepo.find({
+      select: { id: true, full_name: true },
+      where: {
+        warehouse_id: warehouseId,
+        state_user: true,
+      },
+      order: { full_name: 'ASC' },
+    });
+
+    return users.map((u) => ({ id: u.id, full_name: u.full_name }));
   }
 
-  const users = await this.userRepo.find({
-    select: { id: true, full_name: true },
-    where: {
-      warehouse_id: warehouseId,
-      state_user: true,
-    },
-    order: { full_name: 'ASC' },
-  });
+  async getSellersByWarehouse(dto: SellersByWarehouseQueryDto): Promise<WarehouseUserOption[]> {
+    const { warehouseId } = dto;
 
-  return users.map((u) => ({ id: u.id, full_name: u.full_name }));
-}
+    if (!Number.isInteger(warehouseId) || warehouseId < 1) {
+      throw new BadRequestException('warehouseId inválido');
+    }
+
+    // Buscar solo usuarios activos (state_user: true) que sean Vendedores
+    const users = await this.userRepo.find({
+      select: { id: true, full_name: true },
+      relations: ['role'],
+      where: {
+        warehouse_id: warehouseId,
+        state_user: true,
+        role: {
+          name_role: 'Vendedor', // o usa rol_id si prefieres
+        },
+      },
+      order: { full_name: 'ASC' },
+    });
+
+    return users.map((u) => ({ id: u.id, full_name: u.full_name }));
+  }
 }
