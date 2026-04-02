@@ -261,7 +261,7 @@ export class PackingService {
 
       const stockMap = new Map(
         stocks.map(
-          (s) => [`${s.product_id}|${s.product_size_id ?? null}`, s],
+          (s) => [`${s.product_id}|${s.product_size_id || 0}`, s],
         ),
       );
 
@@ -269,7 +269,7 @@ export class PackingService {
          7️⃣ DESCONTAR STOCK + MOVIMIENTOS
       ============================================================ */
       for (const d of details as any[]) {
-        const key = `${d.product_id}|${d.product_size_id ?? null}`;
+        const key = `${d.product_id}|${d.product_size_id || 0}`;
         const stock = stockMap.get(key);
 
         if (!stock) {
