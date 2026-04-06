@@ -206,58 +206,58 @@ export class StockService {
   }
 
   private async createDetailsAndStockOutputs(
-  manager: EntityManager,
-  dto: CreateSaleDto,
-  sale: Sale,
-  validated: Array<{ item: any; unit_price: number }>,
-  created_at: Date
-): Promise<StockMovement[]> {
-  const movements: StockMovement[] = [];
+    manager: EntityManager,
+    dto: CreateSaleDto,
+    sale: Sale,
+    validated: Array<{ item: any; unit_price: number }>,
+    created_at: Date
+  ): Promise<StockMovement[]> {
+    const movements: StockMovement[] = [];
 
-  for (const { item, unit_price } of validated) {
-    // Crear el movimiento de stock primero
-    const movement = manager.create(StockMovement, {
-      warehouse_id: dto.warehouse_id,
-      product_id: item.product_id,
-      product_size_id: item.product_size_id ?? null,
-      quantity: -Math.abs(Number(item.quantity)),
-      unit_of_measure: item.unit_of_measure,
-      movement_type: 'salida',
-      reference: `Venta ${sale.sale_code}`,
-      user_id: dto.user_id,
-      movement_date: moment().tz('America/Lima').toDate(),
-      created_at: created_at,
-    });
-    await manager.save(StockMovement, movement);
-    movements.push(movement);
-
-    // Crear el detalle de la venta y asociarlo con el movimiento de stock
-    const detail = manager.create(SaleDetail, {
-      sale_id: sale.id,
-      product_id: item.product_id,
-      product_size_id: item.product_size_id ?? null,
-      quantity: item.quantity,
-      unit_price,
-      sale_date: moment().tz('America/Lima').toDate(),
-      stockMovement: movement,  // Asociamos el StockMovement
-    });
-    await manager.save(SaleDetail, detail);
-
-    // Descontar stock
-    await manager.decrement(
-      Stock,
-      {
+    for (const { item, unit_price } of validated) {
+      // Crear el movimiento de stock primero
+      const movement = manager.create(StockMovement, {
         warehouse_id: dto.warehouse_id,
         product_id: item.product_id,
         product_size_id: item.product_size_id ?? null,
-      },
-      'quantity',
-      item.quantity,
-    );
-  }
+        quantity: -Math.abs(Number(item.quantity)),
+        unit_of_measure: item.unit_of_measure,
+        movement_type: 'salida',
+        reference: `Venta ${sale.sale_code}`,
+        user_id: dto.user_id,
+        movement_date: moment().tz('America/Lima').toDate(),
+        created_at: created_at,
+      });
+      await manager.save(StockMovement, movement);
+      movements.push(movement);
 
-  return movements;
-}
+      // Crear el detalle de la venta y asociarlo con el movimiento de stock
+      const detail = manager.create(SaleDetail, {
+        sale_id: sale.id,
+        product_id: item.product_id,
+        product_size_id: item.product_size_id ?? null,
+        quantity: item.quantity,
+        unit_price,
+        sale_date: moment().tz('America/Lima').toDate(),
+        stockMovement: movement,  // Asociamos el StockMovement
+      });
+      await manager.save(SaleDetail, detail);
+
+      // Descontar stock
+      await manager.decrement(
+        Stock,
+        {
+          warehouse_id: dto.warehouse_id,
+          product_id: item.product_id,
+          product_size_id: item.product_size_id ?? null,
+        },
+        'quantity',
+        item.quantity,
+      );
+    }
+
+    return movements;
+  }
 
 
   /**
@@ -587,5 +587,126 @@ export class StockService {
     }
 
     return updatedStocks;
+  }
+
+  async getInventoryByWarehouseAndCategory(
+    warehouseId: number,
+    category: string,
+  ) {
+    const rows = await this.stockRepo
+      .createQueryBuilder('s')
+      .innerJoinAndSelect('s.product', 'p')
+      .leftJoinAndSelect('s.productSize', 'ps')
+      .leftJoinAndSelect('p.sizes', 'sizes')
+      .where('s.warehouse_id = :warehouseId', { warehouseId })
+      .andWhere('p.category = :category', { category })
+      .andWhere('p.status = 1')
+      .orderBy('p.article_code', 'ASC')
+      .addOrderBy('ps.size', 'ASC')
+      .getMany();
+
+    if (!rows.length) {
+      throw new NotFoundException(
+        `No hay productos para warehouse=${warehouseId} y categoría=${category}`,
+      );
+    }
+
+    // Agrupar por producto
+    const map = new Map<number, any>();
+
+    for (const s of rows) {
+      const p = s.product;
+
+      if (!map.has(p.id)) {
+        map.set(p.id, {
+          product_id: p.id,
+          article_code: p.article_code,
+          article_description: p.article_description,
+          brand_name: p.brand_name,
+          model_code: p.model_code,
+          category: p.category,
+          color: p.color,
+          unit_price: Number(p.unit_price),
+          product_image: p.product_image,
+          sizes: p.sizes ?? [],
+          stock: [],
+          total_stock: 0,
+        });
+      }
+
+      const prod = map.get(p.id);
+
+      prod.stock.push({
+        stock_id: s.id,
+        product_size_id: s.product_size_id,
+        size: s.productSize?.size ?? null,
+        quantity: Number(s.quantity),
+      });
+
+      prod.total_stock += Number(s.quantity || 0);
+    }
+
+    return Array.from(map.values());
+  }
+
+  async adjustInventory(
+    warehouseId: number,
+    userId: number,
+    items: {
+      product_id: number;
+      product_size_id: number;
+      new_quantity: number;
+    }[],
+  ) {
+    return this.dataSource.transaction(async (manager) => {
+
+      const movements: StockMovement[] = [];
+
+      for (const item of items) {
+        const stock = await manager.findOne(Stock, {
+          where: {
+            warehouse_id: warehouseId,
+            product_id: item.product_id,
+            product_size_id: item.product_size_id,
+          },
+        });
+
+        if (!stock) {
+          throw new NotFoundException(
+            `Stock no encontrado para product_id=${item.product_id}, size=${item.product_size_id}`,
+          );
+        }
+
+        const current = Number(stock.quantity);
+        const difference = Number(item.new_quantity) - current;
+
+        // Si no hay cambio, ignoramos
+        if (difference === 0) continue;
+
+        // Crear movimiento (auditoría)
+        const movement = manager.create(StockMovement, {
+          warehouse_id: warehouseId,
+          product_id: item.product_id,
+          product_size_id: item.product_size_id,
+          quantity: difference, // puede ser + o -
+          movement_type: 'ajuste',
+          reference: 'Ajuste de inventario',
+          user_id: userId,
+          movement_date: moment().tz('America/Lima').toDate(),
+        });
+
+        await manager.save(StockMovement, movement);
+        movements.push(movement);
+
+        // Actualizar stock
+        stock.quantity = item.new_quantity;
+        await manager.save(Stock, stock);
+      }
+
+      return {
+        message: 'Inventario actualizado correctamente',
+        movements,
+      };
+    });
   }
 }

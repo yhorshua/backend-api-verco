@@ -11,7 +11,7 @@ export class StockController {
   @UseGuards(JwtAuthGuard)
   @Post('register-multiple')
   async registerStockForMultipleItems(
-    @Body() stockDto: { warehouseId: number; products: {  productId: number; productSizeId: number; quantity: number }[] }
+    @Body() stockDto: { warehouseId: number; products: { productId: number; productSizeId: number; quantity: number }[] }
   ) {
     const { warehouseId, products } = stockDto;
     return await this.stockService.registerStockForMultipleItems(warehouseId, products);
@@ -35,6 +35,38 @@ export class StockController {
     return this.stockService.registerSale(dto);
   }
 
+  @UseGuards(JwtAuthGuard)
+  @Get('inventory/:warehouseId/category/:category')
+  getInventory(
+    @Param('warehouseId') warehouseId: string,
+    @Param('category') category: string,
+  ) {
+    return this.stockService.getInventoryByWarehouseAndCategory(
+      +warehouseId,
+      category,
+    );
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('inventory/adjust')
+  adjustInventory(
+    @Body()
+    body: {
+      warehouseId: number;
+      userId: number;
+      items: {
+        product_id: number;
+        product_size_id: number;
+        new_quantity: number;
+      }[];
+    },
+  ) {
+    return this.stockService.adjustInventory(
+      body.warehouseId,
+      body.userId,
+      body.items,
+    );
+  }
   /*
     @Post('incoming')
     registerIncoming(@Body() dto: CreateMovementDto) {
