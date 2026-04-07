@@ -36,14 +36,14 @@ export class StockController {
   }
 
   @UseGuards(JwtAuthGuard)
-  @Get('inventory/:warehouseId/category/:category')
+  @Get('inventory/:warehouseId/category/:categoryId')
   getInventory(
     @Param('warehouseId') warehouseId: string,
-    @Param('category') category: string,
+    @Param('categoryId') categoryId: string,
   ) {
     return this.stockService.getInventoryByWarehouseAndCategory(
       +warehouseId,
-      category,
+      +categoryId,
     );
   }
 
