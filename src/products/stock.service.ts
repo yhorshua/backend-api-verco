@@ -591,15 +591,16 @@ export class StockService {
 
   async getInventoryByWarehouseAndCategory(
     warehouseId: number,
-    category: string,
+    categoryId: number,
   ) {
     const rows = await this.stockRepo
       .createQueryBuilder('s')
       .innerJoinAndSelect('s.product', 'p')
+      .innerJoin('p.category', 'c') // 👈 JOIN a categoría
       .leftJoinAndSelect('s.productSize', 'ps')
       .leftJoinAndSelect('p.sizes', 'sizes')
       .where('s.warehouse_id = :warehouseId', { warehouseId })
-      .andWhere('p.category = :category', { category })
+      .andWhere('c.id = :categoryId', { categoryId }) // 👈 FILTRO REAL
       .andWhere('p.status = 1')
       .orderBy('p.article_code', 'ASC')
       .addOrderBy('ps.size', 'ASC')
@@ -607,7 +608,7 @@ export class StockService {
 
     if (!rows.length) {
       throw new NotFoundException(
-        `No hay productos para warehouse=${warehouseId} y categoría=${category}`,
+        `No hay productos para warehouse=${warehouseId} y categoría=${categoryId}`,
       );
     }
 
