@@ -18,3 +18,19 @@ export class CreateProductDto {
   sizes: string[];                   // Lista de tallas disponibles (como 38, 39, 40, etc.)
   lot_pair?: number;                 // Pares por lote (solo si aplica, como en calzado)
 }
+
+
+export class UpdateProductDto {
+  article_code?: string;
+  article_description?: string;
+  unit_price?: number;
+
+  factory_price?: number;
+  dropshipping_price?: number;
+  wholesale_price?: number;
+
+  product_image?: string;
+
+  categoryId?: number; // 🔥 IMPORTANTE
+  article_series?: string;
+}

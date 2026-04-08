@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, Repository } from 'typeorm';
 import { Product } from '../database/entities/product.entity';
@@ -107,11 +107,91 @@ export class ProductsService {
     return product;
   }
 
-  async update(id: number, updateProductDto: UpdateProductDto): Promise<Product> {
-    const product = await this.findOne(id);
-    Object.assign(product, updateProductDto);
-    return await this.productRepo.save(product);
+
+ async update(id: number, updateProductDto: UpdateProductDto): Promise<Product> {
+  const product = await this.findOne(id);
+
+  // 🔒 Campos permitidos
+  const allowedFields = [
+    'article_code',
+    'article_description',
+    'type_origin',
+    'manufacturing_cost',
+    'unit_price',
+    'factory_price',
+    'dropshipping_price',
+    'wholesale_price',
+    'brand_name',
+    'model_code',
+    'material_type',
+    'color',
+    'stock_minimum',
+    'product_image'
+  ];
+
+  for (const key in updateProductDto) {
+    const value = updateProductDto[key];
+
+    if (value === undefined || value === null) continue;
+
+    // 🔒 Validar campos permitidos
+    if (!allowedFields.includes(key)) continue;
+
+    // 💰 Validación precios
+    if (
+      ['unit_price', 'factory_price', 'dropshipping_price', 'wholesale_price'].includes(key)
+      && value < 0
+    ) {
+      throw new BadRequestException(`El campo ${key} no puede ser negativo`);
+    }
+
+    // 🔁 Validar código único
+    if (key === 'article_code') {
+      const exists = await this.productRepo.findOne({
+        where: { article_code: value }
+      });
+
+      if (exists && exists.id !== id) {
+        throw new BadRequestException('El código ya existe');
+      }
+    }
+
+    product[key] = value;
   }
+
+  // =========================
+  // 🔴 RELACIONES
+  // =========================
+
+  // ✅ CATEGORY
+  if (updateProductDto.categoryId) {
+    const category = await this.categoryRepo.findOne({
+      where: { id: updateProductDto.categoryId }
+    });
+
+    if (!category) {
+      throw new NotFoundException('Categoría no encontrada');
+    }
+
+    product.category = category;
+  }
+
+  // ✅ SERIES
+  if (updateProductDto.article_series) {
+    const series = await this.seriesRepo.findOne({
+      where: { code: updateProductDto.article_series }
+    });
+
+    if (!series) {
+      throw new NotFoundException('Serie no encontrada');
+    }
+
+    product.series = series;
+    product.article_series = series.code; // importante mantener consistencia
+  }
+
+  return await this.productRepo.save(product);
+}
 
   async disable(id: number): Promise<Product> {
     const product = await this.findOne(id);
@@ -151,59 +231,59 @@ export class ProductsService {
   }
 
   async findProductsWithSizes(): Promise<any[]> {
-  const products = await this.productRepo
-    .createQueryBuilder('product')
-    .leftJoinAndSelect('product.sizes', 'sizes')
-    .leftJoinAndSelect('product.series', 'series')
-    .leftJoinAndSelect('product.category', 'category')
-    .leftJoinAndSelect('sizes.stock', 'stock')
-    .where('product.id IS NOT NULL')
-    .andWhere('series.code IS NOT NULL')
-    .getMany();
+    const products = await this.productRepo
+      .createQueryBuilder('product')
+      .leftJoinAndSelect('product.sizes', 'sizes')
+      .leftJoinAndSelect('product.series', 'series')
+      .leftJoinAndSelect('product.category', 'category')
+      .leftJoinAndSelect('sizes.stock', 'stock')
+      .where('product.id IS NOT NULL')
+      .andWhere('series.code IS NOT NULL')
+      .getMany();
 
-  return products.map(product => {
+    return products.map(product => {
 
-    const sizesMap = product.sizes.reduce((acc, size) => {
-      acc[size.size] = {
-        size_id: size.id,
-        size: size.size
+      const sizesMap = product.sizes.reduce((acc, size) => {
+        acc[size.size] = {
+          size_id: size.id,
+          size: size.size
+        };
+        return acc;
+      }, {});
+
+      return {
+        product_id: product.id,
+
+        article_code: product.article_code,
+        article_description: product.article_description,
+        article_series: product.article_series,
+        type_origin: product.type_origin,
+
+        manufacturing_cost: product.manufacturing_cost,
+        unit_price: product.unit_price,
+
+        brand_name: product.brand_name,
+        model_code: product.model_code,
+        material_type: product.material_type,
+        color: product.color,
+
+        // serie
+        series: {
+          code: product.series?.code,
+          name: product.series?.description_serie
+        },
+
+        // categoría
+        category: {
+          id: product.category?.id,
+          name: product.category?.name
+        },
+
+        // tallas
+        sizes: sizesMap
       };
-      return acc;
-    }, {});
-
-    return {
-      product_id: product.id,
-
-      article_code: product.article_code,
-      article_description: product.article_description,
-      article_series: product.article_series,
-      type_origin: product.type_origin,
-
-      manufacturing_cost: product.manufacturing_cost,
-      unit_price: product.unit_price,
-
-      brand_name: product.brand_name,
-      model_code: product.model_code,
-      material_type: product.material_type,
-      color: product.color,
-
-      // serie
-      series: {
-        code: product.series?.code,
-        name: product.series?.description_serie
-      },
-
-      // categoría
-      category: {
-        id: product.category?.id,
-        name: product.category?.name
-      },
-
-      // tallas
-      sizes: sizesMap
-    };
-  });
-}
+    });
+  }
 
   // Método para consultar por código o descripción
   async findByCode(query: string): Promise<any> {

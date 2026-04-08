@@ -16,6 +16,7 @@ import { CreateSaleDto, PaymentMethod } from './dto/create-sale.dto';
 import { ProductSize } from 'src/database/entities/product-size.entity';
 import { Product } from 'src/database/entities/product.entity';
 import moment from 'moment-timezone';
+import { UpdateProductDto } from './dto/create-product.dto';
 
 @Injectable()
 export class StockService {
@@ -709,5 +710,25 @@ export class StockService {
         movements,
       };
     });
+  }
+
+
+  async update(id: number, updateProductDto: UpdateProductDto): Promise<Product> {
+    const product = await this.productRepo.findOne({ where: { id } });
+
+    if (!product) {
+      throw new NotFoundException(`Producto con ID ${id} no encontrado`);
+    }
+
+    for (const key in updateProductDto) {
+      const value = updateProductDto[key];
+
+      // Solo actualiza si el valor existe
+      if (value !== undefined && value !== null) {
+        product[key] = value;
+      }
+    }
+
+    return await this.productRepo.save(product);
   }
 }
