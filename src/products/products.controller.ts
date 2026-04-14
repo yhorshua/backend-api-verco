@@ -64,4 +64,13 @@ export class ProductsController {
   disable(@Param('id') id: string) {
     return this.productsService.disable(+id);
   }
+
+  @UseGuards(JwtAuthGuard)
+@Patch(':id')
+async updateProduct(
+  @Param('id') id: string,
+  @Body() updateProductDto: UpdateProductDto
+) {
+  return await this.productsService.update(+id, updateProductDto);
+}
 }

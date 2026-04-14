@@ -18,6 +18,7 @@ import { StockReservation } from '../database/entities/stock_reservations.entity
 import { StockReservationStatus } from '../database/entities/stock-reservation-status.enum';
 import { ListOrdersAdvancedDto } from './dto/list-orders-advanced.dto';
 import { OrderStatusEnum } from './dto/orderStatusEnum';
+import { DeliveryStatusEnum } from './dto/statusDelivered.dto';
 
 
 @Injectable()
@@ -97,6 +98,11 @@ export class OrdersService {
 
         payment_status: isDropshipping ? 'PAGADO' : 'PENDIENTE',
         payment_reference: dto.payment_reference ?? null,
+
+        customer_name: dto.customer_name ?? null,
+        customer_phone: dto.customer_phone ?? null,
+        customer_address: dto.customer_address ?? null,
+        customer_reference: dto.customer_reference ?? null,
 
         order_status_id: isDropshipping
           ? OrderStatusEnum.APROBADO
@@ -192,7 +198,12 @@ export class OrdersService {
         }
 
         if (isDropshipping) {
+          if (!dto.customer_name || !dto.customer_phone || !dto.customer_address) {
+            throw new BadRequestException('Datos del cliente son obligatorios en dropshipping');
+          }
           await reservationRepo.save({
+
+
             order_id: savedOrder.id,
             warehouse_id: dto.warehouse_id,
             product_id: it.product_id,
@@ -358,14 +369,14 @@ export class OrdersService {
                   : o.order_status_id === OrderStatusEnum.ALISTADO
                     ? 'Alistado'
                     : o.order_status_id === OrderStatusEnum.GUIA_INTERNA_GENERADA
-                    ? 'Guia Interna Generada'
-                    : o.order_status_id === OrderStatusEnum.DESPACHADO
-                    ? 'Despachado'
-                    : o.order_status_id === OrderStatusEnum.FACTURADO
-                      ? 'Facturado'
-                      : o.order_status_id === OrderStatusEnum.CERRADO
-                    ? 'Cerrado'
-                      : 'Desconocido',
+                      ? 'Guia Interna Generada'
+                      : o.order_status_id === OrderStatusEnum.DESPACHADO
+                        ? 'Despachado'
+                        : o.order_status_id === OrderStatusEnum.FACTURADO
+                          ? 'Facturado'
+                          : o.order_status_id === OrderStatusEnum.CERRADO
+                            ? 'Cerrado'
+                            : 'Desconocido',
         totalUnidades,
         totalPrecio,
         items,
@@ -373,6 +384,27 @@ export class OrdersService {
     });
   }
 
+
+  async markAsDelivered(orderId: number, userId: number, notes?: string) {
+  const order = await this.orderRepo.findOne({ where: { id: orderId } });
+
+  if (!order) throw new NotFoundException('Pedido no encontrado');
+
+  if (order.order_status_id !== OrderStatusEnum.DESPACHADO) {
+    throw new BadRequestException('Solo pedidos despachados pueden cerrarse');
+  }
+
+  order.order_status_id = OrderStatusEnum.CERRADO;
+  order.delivered_at = new Date();
+
+  order.delivered_by = userId;
+  order.delivery_status = DeliveryStatusEnum.ENTREGADO;
+  order.delivery_notes = notes ?? '';
+
+  await this.orderRepo.save(order);
+
+  return { ok: true };
+}
 
 }
 

@@ -38,4 +38,16 @@ export class OrdersController {
   reject(@Param('id') id: string, @Body() dto: RejectOrderDto) {
     return this.service.rejectOrder(Number(id), dto.rejected_by, dto.reason);
   }
+
+  @Post(':id/delivered')
+async markAsDelivered(
+  @Param('id') orderId: number,
+  @Body() body: { user_id: number; notes?: string },
+) {
+  return this.service.markAsDelivered(
+    Number(orderId),
+    body.user_id,
+    body.notes,
+  );
+}
 }

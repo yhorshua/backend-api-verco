@@ -3,7 +3,7 @@ import {
   PrimaryGeneratedColumn,
   Column,
   ManyToOne,
-  OneToMany, 
+  OneToMany,
   JoinColumn,
   Index,
 } from 'typeorm';
@@ -13,6 +13,7 @@ import { User } from './user.entity';
 import { OrderStatus } from './order-status.entity';
 import { OrderDetail } from './order-details.entity';
 import { OrderTypeEnum, PaymentMethodEnum, PaymentStatusEnum } from '../../orders/dto/orderEnum';
+import { DeliveryStatusEnum } from 'src/orders/dto/statusDelivered.dto';
 
 
 
@@ -127,6 +128,44 @@ export class Order {
   updated_at: Date;
 
   isDropshipping(): boolean {
-  return this.order_type === OrderTypeEnum.DROPSHIPPING;
-}
+    return this.order_type === OrderTypeEnum.DROPSHIPPING;
+  }
+
+  @Column({ nullable: true })
+  customer_name: string;
+
+  @Column({ nullable: true })
+  customer_phone: string;
+
+  @Column({ nullable: true })
+  customer_address: string;
+
+  @Column({ nullable: true })
+  customer_reference: string;
+
+  @Column({ default: false })
+  is_dropshipping: boolean;
+
+  @Column({ type: 'timestamp', nullable: true })
+  delivered_at: Date;
+
+  // QUIÉN ENTREGÓ
+@Column({ type: 'int', nullable: true })
+delivered_by: number;
+
+@ManyToOne(() => User)
+@JoinColumn({ name: 'delivered_by' })
+deliveredByUser: User;
+
+// ESTADO DE ENTREGA (logístico)
+@Column({
+  type: 'enum',
+  enum: DeliveryStatusEnum,
+  default: DeliveryStatusEnum.PENDIENTE,
+})
+delivery_status: DeliveryStatusEnum;
+
+// NOTAS DE ENTREGA
+@Column({ type: 'text', nullable: true })
+delivery_notes: string;
 }

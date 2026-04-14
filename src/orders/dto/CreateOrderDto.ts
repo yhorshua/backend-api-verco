@@ -44,4 +44,9 @@ export class CreateOrderDto {
   @ValidateNested({ each: true })
   @Type(() => CreateOrderItemDto)
   items: CreateOrderItemDto[];
+
+  customer_name?: string;
+  customer_phone?: string;
+  customer_address?: string;
+  customer_reference?: string;
 }

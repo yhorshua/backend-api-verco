@@ -711,24 +711,4 @@ export class StockService {
       };
     });
   }
-
-
-  async update(id: number, updateProductDto: UpdateProductDto): Promise<Product> {
-    const product = await this.productRepo.findOne({ where: { id } });
-
-    if (!product) {
-      throw new NotFoundException(`Producto con ID ${id} no encontrado`);
-    }
-
-    for (const key in updateProductDto) {
-      const value = updateProductDto[key];
-
-      // Solo actualiza si el valor existe
-      if (value !== undefined && value !== null) {
-        product[key] = value;
-      }
-    }
-
-    return await this.productRepo.save(product);
-  }
 }
