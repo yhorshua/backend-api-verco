@@ -40,14 +40,14 @@ export class OrdersController {
   }
 
   @Post(':id/delivered')
-async markAsDelivered(
-  @Param('id') orderId: number,
-  @Body() body: { user_id: number; notes?: string },
-) {
-  return this.service.markAsDelivered(
-    Number(orderId),
-    body.user_id,
-    body.notes,
-  );
-}
+  async markAsDelivered(
+    @Param('id') orderId: number,
+    @Body() body: { user_id: number; notes?: string },
+  ) {
+    return this.service.markAsDelivered(
+      Number(orderId),
+      body.user_id,
+      body.notes,
+    );
+  }
 }
