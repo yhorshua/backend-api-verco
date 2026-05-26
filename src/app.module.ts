@@ -52,6 +52,9 @@ import { EstadoCuentaHistorial } from './database/entities/estado-cuenta-histori
 import { GuiaInterna } from './database/entities/guia-interna.entity';
 import { GuiaInternaDetalle } from './database/entities/guia-interna-detalle.entity';
 import { GuiaInternaModule } from './guia-interna/guia-interna.module';
+import { WebSale } from './database/entities/webSale.entity';
+import { WebSaleDetail } from './database/entities/webDetail.entity';
+import { WebSaleModule } from './webSale/websale.modules';
 
 @Module({
   imports: [
@@ -102,8 +105,8 @@ import { GuiaInternaModule } from './guia-interna/guia-interna.module';
         EstadoCuentaHistorial,
         GuiaInterna,
         GuiaInternaDetalle,
-        
-
+        WebSale,
+        WebSaleDetail,
       ],
     }),
 
@@ -124,6 +127,7 @@ import { GuiaInternaModule } from './guia-interna/guia-interna.module';
     AttendanceModule,
     SaleModule,
     GuiaInternaModule,
+    WebSaleModule,
   ],
   controllers: [AppController],
   providers: [AppService],

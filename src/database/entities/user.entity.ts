@@ -6,55 +6,55 @@ import { Attendance } from './marcacion.entity';
 @Entity('Users')
 export class User {
   @PrimaryGeneratedColumn()
-  id: number;
+  id!: number;
 
   @Column()
-  full_name: string;
+  full_name!: string;
 
   @Column({ unique: true })
-  email: string;
+  email!: string;
 
   @Column()
-  password_hash: string;
+  password_hash!: string;
 
   @Column({ nullable: true })
-  cellphone: string;
+  cellphone!: string;
 
   @Column({ nullable: true })
-  address_home: string;
+  address_home!: string;
 
   @Column({ nullable: true })
-  id_cedula: string;
+  id_cedula!: string;
 
   @Column()
-  rol_id: number;
+  rol_id!: number;
 
   @ManyToOne(() => Role)
   @JoinColumn({ name: 'rol_id' })
-  role: Role;
+  role!: Role;
 
   @Column({ type: 'datetime', default: () => 'GETDATE()' })
-  date_register: Date;
+  date_register!: Date;
 
   @Column({ type: 'bit', default: true })
-  state_user: boolean;
+  state_user!: boolean;
 
   @Column({ nullable: true })
-  warehouse_id: number;
+  warehouse_id!: number;
 
   @ManyToOne(() => Warehouse)
   @JoinColumn({ name: 'warehouse_id' })
-  warehouse: Warehouse;
+  warehouse!: Warehouse;
 
   @Column({ type: 'decimal', default: 0 })
-  salario: number;
+  salario!: number;
 
   @OneToMany(() => Attendance, attendance => attendance.user)
-  attendances: Attendance[];
+  attendances!: Attendance[];
 
   @Column({ type: 'time', nullable: true })
-  hora_ingreso: string;  // Ej: '09:00:00'
+  hora_ingreso!: string;  // Ej: '09:00:00'
 
   @Column({ type: 'time', nullable: true })
-  hora_salida: string;  // Ej: '18:00:00'
+  hora_salida!: string;  // Ej: '18:00:00'
 }
