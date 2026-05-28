@@ -1,4 +1,5 @@
 import {
+  ForbiddenException,
   Injectable,
   NotFoundException
 } from '@nestjs/common';
@@ -10,6 +11,7 @@ import { WebSale } from '../database/entities/webSale.entity';
 import { WebSaleDetail } from '../database/entities/webDetail.entity';
 import { WebSaleStatus } from '../database/entities/webSale.entity';
 import { CreateWebSaleDto } from './dto/createWebSaletDto';
+import { FilterWebSaleDto } from './dto/filter-websale.dto';
 
 @Injectable()
 export class WebSaleService {
@@ -97,18 +99,205 @@ export class WebSaleService {
     return sale;
   }
 
-  async updateStatus(id: number, status: WebSaleStatus) {
+
+  async updateStatus(
+    id: number,
+    status: WebSaleStatus,
+    user: any
+  ) {
 
     const sale = await this.saleRepository.findOne({
-      where: { id }
+      where: { id },
+      relations: ['user', 'user.role']
     });
 
     if (!sale) {
-      throw new NotFoundException('Venta no encontrada');
+      throw new NotFoundException(
+        'Venta no encontrada'
+      );
     }
+
+    // =========================================
+    // VALIDACION DE ROLES
+    // =========================================
+
+    const roleName = user.role?.name_role;
+
+    const allowedRoles = [
+      'Administrador',
+      'Jefe Ventas',
+      'Almacenero'
+    ];
+
+    if (!allowedRoles.includes(roleName)) {
+      throw new ForbiddenException(
+        'No tienes permisos para actualizar estados'
+      );
+    }
+
+    // =========================================
+    // ACTUALIZAR ESTADO
+    // =========================================
 
     sale.status = status;
 
-    return await this.saleRepository.save(sale);
+    await this.saleRepository.save(sale);
+
+    return {
+
+      message: 'Estado actualizado correctamente',
+
+      sale_id: sale.id,
+
+      ticket: `Ticket:-${String(sale.id).padStart(6, '0')}`,
+
+      status: sale.status
+    };
   }
+
+
+  async findFilteredSales(
+    user: any,
+    filters: FilterWebSaleDto
+  ) {
+
+    const query = this.saleRepository
+      .createQueryBuilder('sale')
+
+      .leftJoinAndSelect('sale.details', 'details')
+      .leftJoinAndSelect('details.product', 'product')
+      .leftJoinAndSelect('details.productSize', 'productSize')
+      .leftJoinAndSelect('sale.user', 'user')
+      .leftJoinAndSelect('user.role', 'role');
+
+    // =========================================
+    // VALIDACION POR ROL
+    // =========================================
+
+    const roleName = user.role?.name_role;
+
+    // vendedor web -> solo sus ventas
+    if (
+      roleName === 'Vendedor Web'
+    ) {
+      query.andWhere('sale.user_id = :userId', {
+        userId: user.id
+      });
+    }
+
+    // jefe ventas y almacenero -> ven todas
+    if (
+      roleName === 'Jefe Ventas' ||
+      roleName === 'Almacen' ||
+      roleName === 'Administrador'
+    ) {
+      // no aplicar filtro
+    }
+
+    // =========================================
+    // FILTRO ESTADO
+    // =========================================
+
+    if (filters.status) {
+      query.andWhere(
+        'sale.status = :status',
+        {
+          status: filters.status
+        }
+      );
+    }
+
+    // =========================================
+    // FILTRO FECHA INICIO
+    // =========================================
+
+    if (filters.startDate) {
+
+      query.andWhere(
+        'DATE(sale.created_at) >= :startDate',
+        {
+          startDate: filters.startDate
+        }
+      );
+    }
+
+    // =========================================
+    // FILTRO FECHA FIN
+    // =========================================
+
+    if (filters.endDate) {
+
+      query.andWhere(
+        'DATE(sale.created_at) <= :endDate',
+        {
+          endDate: filters.endDate
+        }
+      );
+    }
+
+    query.orderBy(
+      'sale.created_at',
+      'DESC'
+    );
+
+    const sales = await query.getMany();
+
+    return sales.map(sale => ({
+
+      id: sale.id,
+
+      ticket: `Ticket:-${String(sale.id).padStart(6, '0')}`,
+
+      customer_name: sale.customer_name,
+
+      customer_phone: sale.customer_phone,
+
+      customer_address: sale.customer_address,
+
+      department: sale.department,
+      province: sale.province,
+      district: sale.district,
+
+      payment_method: sale.payment_method,
+
+      observations: sale.observations,
+
+      total_amount: sale.total_amount,
+
+      status: sale.status,
+
+      created_at: sale.created_at,
+
+      seller: {
+        id: sale.user.id,
+        full_name: sale.user.full_name,
+        email: sale.user.email,
+        role: sale.user.role?.name_role
+      },
+
+      total_products: sale.details.length,
+
+      details: sale.details.map(detail => ({
+
+        id: detail.id,
+
+        product_id: detail.product_id,
+
+        product_name: detail.product?.article_description,
+
+        article_code: detail.product?.article_code,
+
+        image: detail.product?.product_image,
+
+        size: detail.size,
+
+        quantity: detail.quantity,
+
+        sale_price: detail.sale_price,
+
+        subtotal: detail.subtotal
+      }))
+    }));
+  }
+
 }

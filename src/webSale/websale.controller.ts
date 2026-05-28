@@ -3,20 +3,27 @@ import {
   Controller,
   Get,
   Param,
+  ParseIntPipe,
   Patch,
-  Post
+  Post,
+  Query,
+  Req,
+  UseGuards
 } from '@nestjs/common';
 
 import { WebSaleService } from './websale.service';
 
 import { CreateWebSaleDto } from './dto/createWebSaletDto';
+import { FilterWebSaleDto } from './dto/filter-websale.dto';
+import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
+import { UpdateWebSaleStatusDto } from './dto/updateWebSaleDto';
 
 @Controller('websales')
 export class WebSaleController {
 
   constructor(
     private readonly webSaleService: WebSaleService,
-  ) {}
+  ) { }
 
   @Post()
   async create(
@@ -25,27 +32,20 @@ export class WebSaleController {
     return await this.webSaleService.create(dto);
   }
 
-  @Get()
-  async findAll() {
-    return await this.webSaleService.findAll();
+
+  @Patch(':id/status') 
+  @UseGuards(JwtAuthGuard) 
+  async updateStatus(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateWebSaleStatusDto, @Req() req) {
+    return await this.webSaleService.updateStatus(id, dto.status, req.user);
   }
 
-  @Get(':id')
-  async findOne(
-    @Param('id') id: number
-  ) {
-    return await this.webSaleService.findOne(id);
+  @Get('list')
+  @UseGuards(JwtAuthGuard)
+  async findFilteredSales(
+    @Req() req,
+    @Query()
+    filters: FilterWebSaleDto) {
+    return await this.webSaleService.findFilteredSales(req.user, filters);
   }
-/*
-  @Patch(':id/status')
-  async updateStatus(
-    @Param('id') id: number,
-    @Body() dto: UpdateWebSaleStatusDto
-  ) {
-    return await this.statusService.updateStatus(
-      id,
-      dto.status
-    );
-  }
-    */
+
 }
