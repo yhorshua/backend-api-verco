@@ -174,7 +174,7 @@ export class WebSaleService {
     // VALIDACION POR ROL
     // =========================================
 
-    const roleName = user.role?.name_role;
+    const roleName = user.role;
 
     // vendedor web -> solo sus ventas
     if (
