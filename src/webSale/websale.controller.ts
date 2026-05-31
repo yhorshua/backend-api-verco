@@ -43,8 +43,7 @@ export class WebSaleController {
   @UseGuards(JwtAuthGuard)
   async findFilteredSales(
     @Req() req,
-    @Query()
-    filters: FilterWebSaleDto) {
+    @Query() filters: FilterWebSaleDto) {
     return await this.webSaleService.findFilteredSales(req.user, filters);
   }
 

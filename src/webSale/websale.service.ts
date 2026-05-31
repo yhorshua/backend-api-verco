@@ -1,7 +1,8 @@
 import {
   ForbiddenException,
   Injectable,
-  NotFoundException
+  NotFoundException,
+  UnauthorizedException
 } from '@nestjs/common';
 
 import { InjectRepository } from '@nestjs/typeorm';
@@ -157,147 +158,192 @@ export class WebSaleService {
 
 
   async findFilteredSales(
-    user: any,
-    filters: FilterWebSaleDto
-  ) {
+  user: any,
+  filters: FilterWebSaleDto
+) {
 
-    const query = this.saleRepository
-      .createQueryBuilder('sale')
+  const query = this.saleRepository
+    .createQueryBuilder('sale')
+    .leftJoinAndSelect('sale.details', 'details')
+    .leftJoinAndSelect('details.product', 'product')
+    .leftJoinAndSelect('details.productSize', 'productSize')
+    .leftJoinAndSelect('sale.user', 'user')
+    .leftJoinAndSelect('user.role', 'role');
 
-      .leftJoinAndSelect('sale.details', 'details')
-      .leftJoinAndSelect('details.product', 'product')
-      .leftJoinAndSelect('details.productSize', 'productSize')
-      .leftJoinAndSelect('sale.user', 'user')
-      .leftJoinAndSelect('user.role', 'role');
+  // =========================================
+  // OBTENER DATOS DEL USUARIO LOGUEADO
+  // =========================================
 
-    // =========================================
-    // VALIDACION POR ROL
-    // =========================================
+  const roleName =
+    user?.role?.name_role ||
+    user?.role;
 
-    const roleName = user.role;
+  const userId =
+    user?.id ||
+    user?.sub;
 
-    // vendedor web -> solo sus ventas
-    if (
-      roleName === 'Vendedor Web'
-    ) {
-      query.andWhere('sale.user_id = :userId', {
-        userId: user.id
-      });
-    }
+  console.log('Usuario autenticado:', user);
+  console.log('Role:', roleName);
+  console.log('UserId:', userId);
 
-    // jefe ventas y almacenero -> ven todas
-    if (
-      roleName === 'Jefe Ventas' ||
-      roleName === 'Almacen' ||
-      roleName === 'Administrador'
-    ) {
-      // no aplicar filtro
-    }
+  // =========================================
+  // VALIDACION POR ROL
+  // =========================================
 
-    // =========================================
-    // FILTRO ESTADO
-    // =========================================
+  switch (roleName) {
 
-    if (filters.status) {
-      query.andWhere(
-        'sale.status = :status',
-        {
-          status: filters.status
-        }
-      );
-    }
-
-    // =========================================
-    // FILTRO FECHA INICIO
-    // =========================================
-
-    if (filters.startDate) {
+    case 'Vendedor Web':
 
       query.andWhere(
-        'DATE(sale.created_at) >= :startDate',
+        'user.id = :userId',
         {
-          startDate: filters.startDate
+          userId
         }
       );
-    }
 
-    // =========================================
-    // FILTRO FECHA FIN
-    // =========================================
+      break;
 
-    if (filters.endDate) {
+    case 'Jefe Ventas':
+    case 'Almacen':
+    case 'Administrador':
+      // Ve todas las ventas
+      break;
 
-      query.andWhere(
-        'DATE(sale.created_at) <= :endDate',
-        {
-          endDate: filters.endDate
-        }
+    default:
+      throw new UnauthorizedException(
+        'No tiene permisos para consultar ventas'
       );
-    }
-
-    query.orderBy(
-      'sale.created_at',
-      'DESC'
-    );
-
-    const sales = await query.getMany();
-
-    return sales.map(sale => ({
-
-      id: sale.id,
-
-      ticket: `Ticket:-${String(sale.id).padStart(6, '0')}`,
-
-      customer_name: sale.customer_name,
-
-      customer_phone: sale.customer_phone,
-
-      customer_address: sale.customer_address,
-
-      department: sale.department,
-      province: sale.province,
-      district: sale.district,
-
-      payment_method: sale.payment_method,
-
-      observations: sale.observations,
-
-      total_amount: sale.total_amount,
-
-      status: sale.status,
-
-      created_at: sale.created_at,
-
-      seller: {
-        id: sale.user.id,
-        full_name: sale.user.full_name,
-        email: sale.user.email,
-        role: sale.user.role?.name_role
-      },
-
-      total_products: sale.details.length,
-
-      details: sale.details.map(detail => ({
-
-        id: detail.id,
-
-        product_id: detail.product_id,
-
-        product_name: detail.product?.article_description,
-
-        article_code: detail.product?.article_code,
-
-        image: detail.product?.product_image,
-
-        size: detail.size,
-
-        quantity: detail.quantity,
-
-        sale_price: detail.sale_price,
-
-        subtotal: detail.subtotal
-      }))
-    }));
   }
+
+  // =========================================
+  // FILTRO POR ESTADO
+  // =========================================
+
+  if (filters.status) {
+
+    query.andWhere(
+      'sale.status = :status',
+      {
+        status: filters.status
+      }
+    );
+  }
+
+  // =========================================
+  // FILTRO FECHA INICIO
+  // =========================================
+
+  if (filters.startDate) {
+
+    query.andWhere(
+      'DATE(sale.created_at) >= :startDate',
+      {
+        startDate: filters.startDate
+      }
+    );
+  }
+
+  // =========================================
+  // FILTRO FECHA FIN
+  // =========================================
+
+  if (filters.endDate) {
+
+    query.andWhere(
+      'DATE(sale.created_at) <= :endDate',
+      {
+        endDate: filters.endDate
+      }
+    );
+  }
+
+  // =========================================
+  // ORDENAMIENTO
+  // =========================================
+
+  query.orderBy(
+    'sale.created_at',
+    'DESC'
+  );
+
+  // =========================================
+  // DEBUG SQL
+  // =========================================
+
+  console.log(
+    'SQL:',
+    query.getSql()
+  );
+
+  console.log(
+    'PARAMS:',
+    query.getParameters()
+  );
+
+  const sales = await query.getMany();
+
+  return sales.map(sale => ({
+
+    id: sale.id,
+
+    ticket: `Ticket-${String(sale.id).padStart(6, '0')}`,
+
+    customer_name: sale.customer_name,
+
+    customer_phone: sale.customer_phone,
+
+    customer_address: sale.customer_address,
+
+    department: sale.department,
+
+    province: sale.province,
+
+    district: sale.district,
+
+    payment_method: sale.payment_method,
+
+    observations: sale.observations,
+
+    total_amount: sale.total_amount,
+
+    status: sale.status,
+
+    created_at: sale.created_at,
+
+    seller: {
+      id: sale.user?.id,
+      full_name: sale.user?.full_name,
+      email: sale.user?.email,
+      role: sale.user?.role?.name_role
+    },
+
+    total_products: sale.details?.length || 0,
+
+    details: sale.details.map(detail => ({
+
+      id: detail.id,
+
+      product_id: detail.product_id,
+
+      product_name:
+        detail.product?.article_description,
+
+      article_code:
+        detail.product?.article_code,
+
+      image:
+        detail.product?.product_image,
+
+      size: detail.size,
+
+      quantity: detail.quantity,
+
+      sale_price: detail.sale_price,
+
+      subtotal: detail.subtotal
+
+    }))
+  }));
+}
 
 }
