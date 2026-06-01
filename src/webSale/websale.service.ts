@@ -158,192 +158,193 @@ export class WebSaleService {
 
 
   async findFilteredSales(
-  user: any,
-  filters: FilterWebSaleDto
-) {
+    user: any,
+    filters: FilterWebSaleDto
+  ) {
 
-  const query = this.saleRepository
-    .createQueryBuilder('sale')
-    .leftJoinAndSelect('sale.details', 'details')
-    .leftJoinAndSelect('details.product', 'product')
-    .leftJoinAndSelect('details.productSize', 'productSize')
-    .leftJoinAndSelect('sale.user', 'user')
-    .leftJoinAndSelect('user.role', 'role');
+    const query = this.saleRepository
+      .createQueryBuilder('sale')
+      .leftJoinAndSelect('sale.details', 'details')
+      .leftJoinAndSelect('details.product', 'product')
+      .leftJoinAndSelect('details.productSize', 'productSize')
+      .leftJoinAndSelect('sale.user', 'user')
+      .leftJoinAndSelect('user.role', 'role');
 
-  // =========================================
-  // OBTENER DATOS DEL USUARIO LOGUEADO
-  // =========================================
+    // =========================================
+    // OBTENER DATOS DEL USUARIO LOGUEADO
+    // =========================================
 
-  const roleName =
-    user?.role?.name_role ||
-    user?.role;
+    const roleName =
+      user?.role?.name_role ||
+      user?.role;
 
-  const userId =
-    user?.id ||
-    user?.sub;
+    const userId =
+      user?.userId ||
+      user?.id ||
+      user?.sub;
 
-  console.log('Usuario autenticado:', user);
-  console.log('Role:', roleName);
-  console.log('UserId:', userId);
+    console.log('Usuario autenticado:', user);
+    console.log('Role:', roleName);
+    console.log('UserId:', userId);
 
-  // =========================================
-  // VALIDACION POR ROL
-  // =========================================
+    // =========================================
+    // VALIDACION POR ROL
+    // =========================================
 
-  switch (roleName) {
+    switch (roleName) {
 
-    case 'Vendedor Web':
+      case 'Vendedor Web':
+
+        query.andWhere(
+          'user.id = :userId',
+          {
+            userId
+          }
+        );
+
+        break;
+
+      case 'Jefe Ventas':
+      case 'Almacen':
+      case 'Administrador':
+        // Ve todas las ventas
+        break;
+
+      default:
+        throw new UnauthorizedException(
+          'No tiene permisos para consultar ventas'
+        );
+    }
+
+    // =========================================
+    // FILTRO POR ESTADO
+    // =========================================
+
+    if (filters.status) {
 
       query.andWhere(
-        'user.id = :userId',
+        'sale.status = :status',
         {
-          userId
+          status: filters.status
         }
       );
+    }
 
-      break;
+    // =========================================
+    // FILTRO FECHA INICIO
+    // =========================================
 
-    case 'Jefe Ventas':
-    case 'Almacen':
-    case 'Administrador':
-      // Ve todas las ventas
-      break;
+    if (filters.startDate) {
 
-    default:
-      throw new UnauthorizedException(
-        'No tiene permisos para consultar ventas'
+      query.andWhere(
+        'DATE(sale.created_at) >= :startDate',
+        {
+          startDate: filters.startDate
+        }
       );
-  }
+    }
 
-  // =========================================
-  // FILTRO POR ESTADO
-  // =========================================
+    // =========================================
+    // FILTRO FECHA FIN
+    // =========================================
 
-  if (filters.status) {
+    if (filters.endDate) {
 
-    query.andWhere(
-      'sale.status = :status',
-      {
-        status: filters.status
-      }
+      query.andWhere(
+        'DATE(sale.created_at) <= :endDate',
+        {
+          endDate: filters.endDate
+        }
+      );
+    }
+
+    // =========================================
+    // ORDENAMIENTO
+    // =========================================
+
+    query.orderBy(
+      'sale.created_at',
+      'DESC'
     );
-  }
 
-  // =========================================
-  // FILTRO FECHA INICIO
-  // =========================================
+    // =========================================
+    // DEBUG SQL
+    // =========================================
 
-  if (filters.startDate) {
-
-    query.andWhere(
-      'DATE(sale.created_at) >= :startDate',
-      {
-        startDate: filters.startDate
-      }
+    console.log(
+      'SQL:',
+      query.getSql()
     );
-  }
 
-  // =========================================
-  // FILTRO FECHA FIN
-  // =========================================
-
-  if (filters.endDate) {
-
-    query.andWhere(
-      'DATE(sale.created_at) <= :endDate',
-      {
-        endDate: filters.endDate
-      }
+    console.log(
+      'PARAMS:',
+      query.getParameters()
     );
+
+    const sales = await query.getMany();
+
+    return sales.map(sale => ({
+
+      id: sale.id,
+
+      ticket: `Ticket-${String(sale.id).padStart(6, '0')}`,
+
+      customer_name: sale.customer_name,
+
+      customer_phone: sale.customer_phone,
+
+      customer_address: sale.customer_address,
+
+      department: sale.department,
+
+      province: sale.province,
+
+      district: sale.district,
+
+      payment_method: sale.payment_method,
+
+      observations: sale.observations,
+
+      total_amount: sale.total_amount,
+
+      status: sale.status,
+
+      created_at: sale.created_at,
+
+      seller: {
+        id: sale.user?.id,
+        full_name: sale.user?.full_name,
+        email: sale.user?.email,
+        role: sale.user?.role?.name_role
+      },
+
+      total_products: sale.details?.length || 0,
+
+      details: sale.details.map(detail => ({
+
+        id: detail.id,
+
+        product_id: detail.product_id,
+
+        product_name:
+          detail.product?.article_description,
+
+        article_code:
+          detail.product?.article_code,
+
+        image:
+          detail.product?.product_image,
+
+        size: detail.size,
+
+        quantity: detail.quantity,
+
+        sale_price: detail.sale_price,
+
+        subtotal: detail.subtotal
+
+      }))
+    }));
   }
-
-  // =========================================
-  // ORDENAMIENTO
-  // =========================================
-
-  query.orderBy(
-    'sale.created_at',
-    'DESC'
-  );
-
-  // =========================================
-  // DEBUG SQL
-  // =========================================
-
-  console.log(
-    'SQL:',
-    query.getSql()
-  );
-
-  console.log(
-    'PARAMS:',
-    query.getParameters()
-  );
-
-  const sales = await query.getMany();
-
-  return sales.map(sale => ({
-
-    id: sale.id,
-
-    ticket: `Ticket-${String(sale.id).padStart(6, '0')}`,
-
-    customer_name: sale.customer_name,
-
-    customer_phone: sale.customer_phone,
-
-    customer_address: sale.customer_address,
-
-    department: sale.department,
-
-    province: sale.province,
-
-    district: sale.district,
-
-    payment_method: sale.payment_method,
-
-    observations: sale.observations,
-
-    total_amount: sale.total_amount,
-
-    status: sale.status,
-
-    created_at: sale.created_at,
-
-    seller: {
-      id: sale.user?.id,
-      full_name: sale.user?.full_name,
-      email: sale.user?.email,
-      role: sale.user?.role?.name_role
-    },
-
-    total_products: sale.details?.length || 0,
-
-    details: sale.details.map(detail => ({
-
-      id: detail.id,
-
-      product_id: detail.product_id,
-
-      product_name:
-        detail.product?.article_description,
-
-      article_code:
-        detail.product?.article_code,
-
-      image:
-        detail.product?.product_image,
-
-      size: detail.size,
-
-      quantity: detail.quantity,
-
-      sale_price: detail.sale_price,
-
-      subtotal: detail.subtotal
-
-    }))
-  }));
-}
 
 }
