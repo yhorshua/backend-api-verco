@@ -12,6 +12,7 @@ import { WebSaleDetail } from './webDetail.entity';
 
 export enum WebSaleStatus {
   PENDING = 'PENDIENTE',
+  APPROVED = 'APROBADO',
   DISPATCHED = 'DESPACHADO',
   DELIVERED = 'ENTREGADO',
   CANCELED = 'CANCELADO'
