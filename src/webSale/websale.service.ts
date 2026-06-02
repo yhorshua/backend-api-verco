@@ -121,8 +121,9 @@ export class WebSaleService {
     // =========================================
     // VALIDACION DE ROLES
     // =========================================
-
-    const roleName = user.role?.name_role;
+    const roleName =
+      user?.role?.name_role ||
+      user?.role;
 
     const allowedRoles = [
       'Administrador',
@@ -183,9 +184,6 @@ export class WebSaleService {
       user?.id ||
       user?.sub;
 
-    console.log('Usuario autenticado:', user);
-    console.log('Role:', roleName);
-    console.log('UserId:', userId);
 
     // =========================================
     // VALIDACION POR ROL
