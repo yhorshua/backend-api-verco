@@ -361,6 +361,12 @@ export class WebSaleService {
 
       created_at: sale.created_at,
 
+      shipping_code: sale.shipping_code,
+
+      agency_delivery: sale.is_agency_delivery,
+
+      agency_name: sale.agency_name,  
+      
       seller: {
         id: sale.user?.id,
         full_name: sale.user?.full_name,
