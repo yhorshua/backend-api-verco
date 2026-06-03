@@ -202,6 +202,17 @@ export class WebSaleService {
 
         break;
 
+      case 'Delivery':
+
+        query.andWhere(
+          'sale.status = :statusDelivery',
+          {
+            statusDelivery: WebSaleStatus.DISPATCHED
+          }
+        );
+
+        break;
+
       case 'Jefe Ventas':
       case 'Almacen':
       case 'Administrador':
@@ -256,6 +267,24 @@ export class WebSaleService {
       );
     }
 
+    if (roleName === 'Delivery') {
+
+      query.andWhere(
+        'sale.status = :statusDelivery',
+        {
+          statusDelivery: WebSaleStatus.DISPATCHED
+        }
+      );
+
+    } else if (filters.status) {
+
+      query.andWhere(
+        'sale.status = :status',
+        {
+          status: filters.status
+        }
+      );
+    }
     // =========================================
     // ORDENAMIENTO
     // =========================================
