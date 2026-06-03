@@ -363,7 +363,7 @@ export class WebSaleService {
 
       shipping_code: sale.shipping_code,
 
-      agency_delivery: sale.is_agency_delivery,
+      is_agency_delivery: sale.is_agency_delivery,
 
       agency_name: sale.agency_name,  
       
