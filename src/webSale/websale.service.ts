@@ -158,6 +158,23 @@ export class WebSaleService {
         'Debe ingresar el código de envío'
       );
     }
+
+    if (dto.status === WebSaleStatus.CANCELED) {
+
+      const details = await this.detailRepository.find({
+        where: { sale: { id } }
+      });
+
+      for (const d of details) {
+        d.detail_status = DetailStatus.DEVUELTO;
+        d.final_amount = 0;
+        d.returned_at = new Date();
+        await this.detailRepository.save(d);
+      }
+
+      sale.total_amount = 0;
+    }
+
     sale.status = dto.status;
 
     if (
