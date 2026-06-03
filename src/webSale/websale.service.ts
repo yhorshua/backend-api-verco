@@ -10,11 +10,12 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
 import { WebSale } from '../database/entities/webSale.entity';
-import { WebSaleDetail } from '../database/entities/webDetail.entity';
+import { DetailStatus, WebSaleDetail } from '../database/entities/webDetail.entity';
 import { WebSaleStatus } from '../database/entities/webSale.entity';
 import { CreateWebSaleDto } from './dto/createWebSaletDto';
 import { FilterWebSaleDto } from './dto/filter-websale.dto';
 import { UpdateWebSaleDto } from './dto/updateWebSaleDto';
+import { DeliverSaleDto } from './dto/deliverySaleDto';
 
 @Injectable()
 export class WebSaleService {
@@ -365,8 +366,8 @@ export class WebSaleService {
 
       is_agency_delivery: sale.is_agency_delivery,
 
-      agency_name: sale.agency_name,  
-      
+      agency_name: sale.agency_name,
+
       seller: {
         id: sale.user?.id,
         full_name: sale.user?.full_name,
@@ -401,6 +402,85 @@ export class WebSaleService {
 
       }))
     }));
+  }
+
+  async deliverSale(
+    saleId: number,
+    dto: DeliverSaleDto
+  ) {
+
+    const sale =
+      await this.saleRepository.findOne({
+        where: {
+          id: saleId
+        },
+        relations: ['details']
+      });
+
+    if (!sale) {
+      throw new NotFoundException();
+    }
+
+    let finalAmount = 0;
+
+    for (const item of dto.details) {
+
+      const detail =
+        sale.details.find(
+          d => d.id === item.detail_id
+        );
+
+      if (!detail) {
+        continue;
+      }
+
+      detail.detail_status =
+        item.status;
+
+      if (
+        item.status === DetailStatus.VENDIDO
+      ) {
+
+        detail.sold_at =
+          new Date();
+
+        detail.final_amount =
+          detail.subtotal;
+
+        finalAmount +=
+          Number(detail.subtotal);
+
+      }
+
+      if (
+        item.status === DetailStatus.DEVUELTO
+      ) {
+
+        detail.returned_at =
+          new Date();
+
+        detail.final_amount = 0;
+      }
+
+      await this.detailRepository.save(
+        detail
+      );
+    }
+
+    sale.total_amount =
+      finalAmount;
+
+    sale.status =
+      WebSaleStatus.DELIVERED;
+
+    await this.saleRepository.save(
+      sale
+    );
+
+    return {
+      message:
+        'Entrega registrada'
+    };
   }
 
 }

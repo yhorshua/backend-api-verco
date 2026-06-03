@@ -10,6 +10,12 @@ import { WebSale } from './webSale.entity';
 import { Product } from './product.entity';
 import { ProductSize } from './product-size.entity';
 
+export enum DetailStatus {
+  PENDIENTE = 'PENDIENTE',
+  VENDIDO = 'VENDIDO',
+  DEVUELTO = 'DEVUELTO'
+}
+
 @Entity('WebSaleDetails')
 export class WebSaleDetail {
 
@@ -42,7 +48,7 @@ export class WebSaleDetail {
   product_size_id!: number;
 
   @Column()
-  size! : string;
+  size!: string;
 
   // Cantidad
   @Column()
@@ -61,4 +67,27 @@ export class WebSaleDetail {
     scale: 2
   })
   subtotal!: number;
+
+  @Column({
+    type: 'varchar',
+    default: DetailStatus.PENDIENTE
+  })
+  detail_status!: DetailStatus;
+
+  @Column({
+    nullable: true
+  })
+  returned_at!: Date;
+
+  @Column({
+    nullable: true
+  })
+  sold_at!: Date;
+
+  @Column('decimal', {
+    precision: 10,
+    scale: 2,
+    nullable: true
+  })
+  final_amount!: number;
 }
