@@ -82,6 +82,23 @@ export class WebSale {
   })
   created_at!: Date;
 
+  @Column({
+    default: false
+  })
+  is_agency_delivery!: boolean;
+
+  @Column({
+    nullable: true,
+    length: 150
+  })
+  agency_name!: string;
+
+  @Column({
+    nullable: true,
+    length: 100
+  })
+  shipping_code!: string;
+
   // Detalles
   @OneToMany(() => WebSaleDetail, detail => detail.sale, {
     cascade: true

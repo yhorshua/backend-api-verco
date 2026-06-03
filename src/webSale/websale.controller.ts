@@ -16,7 +16,7 @@ import { WebSaleService } from './websale.service';
 import { CreateWebSaleDto } from './dto/createWebSaletDto';
 import { FilterWebSaleDto } from './dto/filter-websale.dto';
 import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
-import { UpdateWebSaleStatusDto } from './dto/updateWebSaleDto';
+import { UpdateWebSaleDto } from './dto/updateWebSaleDto';
 
 @Controller('websales')
 export class WebSaleController {
@@ -35,8 +35,8 @@ export class WebSaleController {
 
   @Patch(':id/status') 
   @UseGuards(JwtAuthGuard) 
-  async updateStatus(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateWebSaleStatusDto, @Req() req) {
-    return await this.webSaleService.updateStatus(id, dto.status, req.user);
+  async updateStatus(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateWebSaleDto, @Req() req) {
+    return await this.webSaleService.updateStatus(id, dto, req.user);
   }
 
   @Get('list')

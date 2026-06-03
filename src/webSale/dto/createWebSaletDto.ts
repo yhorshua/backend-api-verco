@@ -55,6 +55,12 @@ export class CreateWebSaleDto {
   @IsNumber()
   user_id!: number;
 
+  is_agency_delivery?: boolean;
+
+  agency_name?: string;
+
+  shipping_code?: string;
+
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => CreateWebSaleDetailDto)

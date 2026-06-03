@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -13,6 +14,7 @@ import { WebSaleDetail } from '../database/entities/webDetail.entity';
 import { WebSaleStatus } from '../database/entities/webSale.entity';
 import { CreateWebSaleDto } from './dto/createWebSaletDto';
 import { FilterWebSaleDto } from './dto/filter-websale.dto';
+import { UpdateWebSaleDto } from './dto/updateWebSaleDto';
 
 @Injectable()
 export class WebSaleService {
@@ -39,6 +41,11 @@ export class WebSaleService {
       payment_method: createDto.payment_method,
       observations: createDto.observations,
       total_amount: createDto.total_amount,
+      is_agency_delivery:
+        createDto.is_agency_delivery,
+
+      agency_name:
+        createDto.agency_name,
       user: {
         id: createDto.user_id
       }
@@ -103,7 +110,7 @@ export class WebSaleService {
 
   async updateStatus(
     id: number,
-    status: WebSaleStatus,
+    dto: UpdateWebSaleDto,
     user: any
   ) {
 
@@ -128,7 +135,8 @@ export class WebSaleService {
     const allowedRoles = [
       'Administrador',
       'Jefe Ventas',
-      'Almacenero'
+      'Almacenero',
+      'Delivery'
     ];
 
     if (!allowedRoles.includes(roleName)) {
@@ -140,8 +148,23 @@ export class WebSaleService {
     // =========================================
     // ACTUALIZAR ESTADO
     // =========================================
+    if (
+      sale.is_agency_delivery &&
+      dto.status === WebSaleStatus.DELIVERED &&
+      !dto.shipping_code
+    ) {
+      throw new BadRequestException(
+        'Debe ingresar el código de envío'
+      );
+    }
+    sale.status = dto.status;
 
-    sale.status = status;
+    if (
+      sale.is_agency_delivery &&
+      dto.shipping_code
+    ) {
+      sale.shipping_code = dto.shipping_code;
+    }
 
     await this.saleRepository.save(sale);
 
