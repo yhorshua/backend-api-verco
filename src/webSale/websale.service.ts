@@ -423,37 +423,34 @@ export class WebSaleService {
 
     let finalAmount = 0;
 
-    for (const item of dto.details) {
+    for (const detail of sale.details) {
 
-      const detail =
-        sale.details.find(
-          d => d.id === item.detail_id
+      const sentDetail =
+        dto.details?.find(
+          d => d.detail_id === detail.id
         );
 
-      if (!detail) {
-        continue;
-      }
+      const status =
+        sentDetail?.status ||
+        DetailStatus.VENDIDO;
 
-      detail.detail_status =
-        item.status;
+      detail.detail_status = status;
 
       if (
-        item.status === DetailStatus.VENDIDO
+        status === DetailStatus.VENDIDO
       ) {
 
-        detail.sold_at =
-          new Date();
+        detail.sold_at = new Date();
 
         detail.final_amount =
-          detail.subtotal;
+          Number(detail.subtotal);
 
         finalAmount +=
           Number(detail.subtotal);
-
       }
 
       if (
-        item.status === DetailStatus.DEVUELTO
+        status === DetailStatus.DEVUELTO
       ) {
 
         detail.returned_at =
@@ -479,8 +476,7 @@ export class WebSaleService {
 
     return {
       message:
-        'Entrega registrada'
+        'Entrega registrada correctamente'
     };
   }
-
 }
