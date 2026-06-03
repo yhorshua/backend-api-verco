@@ -1,5 +1,6 @@
 import {
   IsArray,
+  IsBoolean,
   IsNotEmpty,
   IsNumber,
   IsOptional,
@@ -55,10 +56,16 @@ export class CreateWebSaleDto {
   @IsNumber()
   user_id!: number;
 
+  @IsOptional()
+  @IsBoolean()
   is_agency_delivery?: boolean;
 
+  @IsOptional()
+  @IsString()
   agency_name?: string;
 
+  @IsOptional()
+  @IsString()
   shipping_code?: string;
 
   @IsArray()
