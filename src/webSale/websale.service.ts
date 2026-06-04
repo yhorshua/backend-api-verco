@@ -363,6 +363,8 @@ export class WebSaleService {
 
       customer_address: sale.customer_address,
 
+      customer_dni: sale.customer_dni,
+
       department: sale.department,
 
       province: sale.province,
