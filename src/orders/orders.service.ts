@@ -330,7 +330,7 @@ export class OrdersService {
         });
         break;
 
-        case 'Vendedor Web':
+      case 'Vendedor Web':
         qb.andWhere('o.user_id = :userId', {
           userId,
         });
@@ -469,11 +469,11 @@ export class OrdersService {
                     OrderStatusEnum.ALISTADO
                     ? 'Alistado'
                     : o.order_status_id ===
-                      OrderStatusEnum.GUIA_INTERNA_GENERADA
-                      ? 'Guia Interna Generada'
+                      OrderStatusEnum.DESPACHADO
+                      ? 'Despachado'
                       : o.order_status_id ===
-                        OrderStatusEnum.DESPACHADO
-                        ? 'Despachado'
+                        OrderStatusEnum.GUIA_INTERNA_GENERADA
+                        ? 'Guia Interna Generada'
                         : o.order_status_id ===
                           OrderStatusEnum.FACTURADO
                           ? 'Facturado'
