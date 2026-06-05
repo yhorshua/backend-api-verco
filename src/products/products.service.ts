@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { EntityManager, Repository } from 'typeorm';
+import { EntityManager, In, Repository } from 'typeorm';
 import { Product } from '../database/entities/product.entity';
 import { ProductSize } from '../database/entities/product-size.entity';
 import { Stock } from '../database/entities/stock.entity';
@@ -8,6 +8,8 @@ import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { Series } from 'src/database/entities/series.entity';
 import { Category } from 'src/database/entities/categories.entity';
+import * as XLSX from 'xlsx';
+import { Express } from 'express';
 
 @Injectable()
 export class ProductsService {
@@ -108,90 +110,90 @@ export class ProductsService {
   }
 
 
- async update(id: number, updateProductDto: UpdateProductDto): Promise<Product> {
-  const product = await this.findOne(id);
+  async update(id: number, updateProductDto: UpdateProductDto): Promise<Product> {
+    const product = await this.findOne(id);
 
-  // 🔒 Campos permitidos
-  const allowedFields = [
-    'article_code',
-    'article_description',
-    'type_origin',
-    'manufacturing_cost',
-    'unit_price',
-    'factory_price',
-    'dropshipping_price',
-    'wholesale_price',
-    'brand_name',
-    'model_code',
-    'material_type',
-    'color',
-    'stock_minimum',
-    'product_image'
-  ];
+    // 🔒 Campos permitidos
+    const allowedFields = [
+      'article_code',
+      'article_description',
+      'type_origin',
+      'manufacturing_cost',
+      'unit_price',
+      'factory_price',
+      'dropshipping_price',
+      'wholesale_price',
+      'brand_name',
+      'model_code',
+      'material_type',
+      'color',
+      'stock_minimum',
+      'product_image'
+    ];
 
-  for (const key in updateProductDto) {
-    const value = updateProductDto[key];
+    for (const key in updateProductDto) {
+      const value = updateProductDto[key];
 
-    if (value === undefined || value === null) continue;
+      if (value === undefined || value === null) continue;
 
-    // 🔒 Validar campos permitidos
-    if (!allowedFields.includes(key)) continue;
+      // 🔒 Validar campos permitidos
+      if (!allowedFields.includes(key)) continue;
 
-    // 💰 Validación precios
-    if (
-      ['unit_price', 'factory_price', 'dropshipping_price', 'wholesale_price'].includes(key)
-      && value < 0
-    ) {
-      throw new BadRequestException(`El campo ${key} no puede ser negativo`);
+      // 💰 Validación precios
+      if (
+        ['unit_price', 'factory_price', 'dropshipping_price', 'wholesale_price'].includes(key)
+        && value < 0
+      ) {
+        throw new BadRequestException(`El campo ${key} no puede ser negativo`);
+      }
+
+      // 🔁 Validar código único
+      if (key === 'article_code') {
+        const exists = await this.productRepo.findOne({
+          where: { article_code: value }
+        });
+
+        if (exists && exists.id !== id) {
+          throw new BadRequestException('El código ya existe');
+        }
+      }
+
+      product[key] = value;
     }
 
-    // 🔁 Validar código único
-    if (key === 'article_code') {
-      const exists = await this.productRepo.findOne({
-        where: { article_code: value }
+    // =========================
+    // 🔴 RELACIONES
+    // =========================
+
+    // ✅ CATEGORY
+    if (updateProductDto.categoryId) {
+      const category = await this.categoryRepo.findOne({
+        where: { id: updateProductDto.categoryId }
       });
 
-      if (exists && exists.id !== id) {
-        throw new BadRequestException('El código ya existe');
+      if (!category) {
+        throw new NotFoundException('Categoría no encontrada');
       }
+
+      product.category = category;
     }
 
-    product[key] = value;
-  }
+    // ✅ SERIES
+    if (updateProductDto.article_series) {
+      const series = await this.seriesRepo.findOne({
+        where: { code: updateProductDto.article_series }
+      });
 
-  // =========================
-  // 🔴 RELACIONES
-  // =========================
+      if (!series) {
+        throw new NotFoundException('Serie no encontrada');
+      }
 
-  // ✅ CATEGORY
-  if (updateProductDto.categoryId) {
-    const category = await this.categoryRepo.findOne({
-      where: { id: updateProductDto.categoryId }
-    });
-
-    if (!category) {
-      throw new NotFoundException('Categoría no encontrada');
+      product.series = series;
+      product.article_series = series.code; // importante mantener consistencia
     }
 
-    product.category = category;
+    return await this.productRepo.save(product);
   }
-
-  // ✅ SERIES
-  if (updateProductDto.article_series) {
-    const series = await this.seriesRepo.findOne({
-      where: { code: updateProductDto.article_series }
-    });
-
-    if (!series) {
-      throw new NotFoundException('Serie no encontrada');
-    }
-
-    product.series = series;
-    product.article_series = series.code; // importante mantener consistencia
-  }
-
-  return await this.productRepo.save(product);
-}
 
   async disable(id: number): Promise<Product> {
     const product = await this.findOne(id);
@@ -321,4 +323,315 @@ export class ProductsService {
     };
   }
 
+
+  async importStockExcel(
+    warehouseId: number,
+    file: any,
+  ) {
+
+    return await this.stockRepo.manager.transaction(
+      async (manager) => {
+
+        const workbook = XLSX.read(file.buffer, {
+          type: 'buffer',
+        });
+
+        const sheetName = workbook.SheetNames[0];
+
+        const worksheet =
+          workbook.Sheets[sheetName];
+
+        const rows: any[] =
+          XLSX.utils.sheet_to_json(
+            worksheet,
+            {
+              defval: 0,
+            },
+          );
+
+        const productsNotFound: string[] = [];
+
+        const sizesNotFound: {
+          articleCode: string;
+          size: string;
+        }[] = [];
+
+        let updated = 0;
+        let inserted = 0;
+
+        /**
+         * Obtener códigos únicos
+         */
+        const articleCodes = [
+          ...new Set(
+            rows
+              .map(row =>
+                String(
+                  row['Código'] ??
+                  row['Codigo'] ??
+                  '',
+                ).trim(),
+              )
+              .filter(Boolean),
+          ),
+        ];
+
+        /**
+         * Productos + tallas
+         */
+        const products =
+          await manager.find(Product, {
+            where: {
+              article_code:
+                In(articleCodes),
+            },
+            relations: ['sizes'],
+          });
+
+        /**
+         * Map de productos
+         */
+        const productMap =
+          new Map<string, Product>();
+
+        products.forEach(product => {
+
+          productMap.set(
+            product.article_code,
+            product,
+          );
+
+        });
+
+        /**
+         * Map de tallas
+         */
+        const sizeMap =
+          new Map<
+            string,
+            ProductSize
+          >();
+
+        products.forEach(product => {
+
+          product.sizes.forEach(size => {
+
+            sizeMap.set(
+              `${product.article_code}_${size.size}`,
+              size,
+            );
+
+          });
+
+        });
+
+        /**
+         * Stock actual del warehouse
+         */
+        const stocks =
+          await manager.find(Stock, {
+            where: {
+              warehouse_id:
+                warehouseId,
+            },
+          });
+
+        /**
+         * Map stock
+         */
+        const stockMap =
+          new Map<string, Stock>();
+
+        stocks.forEach(stock => {
+
+          stockMap.set(
+            `${stock.product_id}_${stock.product_size_id}`,
+            stock,
+          );
+
+        });
+
+        const stocksToUpdate: Stock[] = [];
+
+        const stocksToInsert: Stock[] = [];
+
+        /**
+         * Procesar Excel
+         */
+        for (const row of rows) {
+
+          const articleCode =
+            String(
+              row['Código'] ??
+              row['Codigo'] ??
+              '',
+            ).trim();
+
+          if (!articleCode) {
+            continue;
+          }
+
+          const product =
+            productMap.get(
+              articleCode,
+            );
+
+          if (!product) {
+
+            productsNotFound.push(
+              articleCode,
+            );
+
+            continue;
+          }
+
+          /**
+           * Recorrer columnas
+           */
+          for (const column of Object.keys(row)) {
+
+            /**
+             * Ignorar columna código
+             */
+            if (
+              column === 'Código' ||
+              column === 'Codigo'
+            ) {
+              continue;
+            }
+
+            const sizeValue =
+              String(column).trim();
+
+            const quantity =
+              Number(
+                row[column] ?? 0,
+              );
+
+            const productSize =
+              sizeMap.get(
+                `${articleCode}_${sizeValue}`,
+              );
+
+            if (!productSize) {
+
+              sizesNotFound.push({
+                articleCode,
+                size: sizeValue,
+              });
+
+              continue;
+            }
+
+            const stockKey =
+              `${product.id}_${productSize.id}`;
+
+            const existingStock =
+              stockMap.get(
+                stockKey,
+              );
+
+            /**
+             * UPDATE
+             */
+            if (existingStock) {
+
+              existingStock.quantity =
+                quantity;
+
+              stocksToUpdate.push(
+                existingStock,
+              );
+
+              updated++;
+
+            }
+            /**
+             * INSERT
+             */
+            else {
+
+              const newStock =
+                manager.create(
+                  Stock,
+                  {
+                    warehouse_id:
+                      warehouseId,
+
+                    product_id:
+                      product.id,
+
+                    product_size_id:
+                      productSize.id,
+
+                    quantity,
+
+                    unit_of_measure:
+                      'PAR',
+                  },
+                );
+
+              stocksToInsert.push(
+                newStock,
+              );
+
+              inserted++;
+            }
+          }
+        }
+
+        /**
+         * Guardar updates
+         */
+        if (
+          stocksToUpdate.length > 0
+        ) {
+
+          await manager.save(
+            Stock,
+            stocksToUpdate,
+          );
+        }
+
+        /**
+         * Guardar inserts
+         */
+        if (
+          stocksToInsert.length > 0
+        ) {
+
+          await manager.save(
+            Stock,
+            stocksToInsert,
+          );
+        }
+
+        return {
+
+          warehouseId,
+
+          totalRows:
+            rows.length,
+
+          updated,
+
+          inserted,
+
+          productsNotFound:
+            [
+              ...new Set(
+                productsNotFound,
+              ),
+            ],
+
+          sizesNotFound,
+
+          message:
+            'Importación de stock completada correctamente',
+        };
+      },
+    );
+  }
 }
+
+

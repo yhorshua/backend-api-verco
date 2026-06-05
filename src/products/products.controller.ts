@@ -1,8 +1,10 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, Query, UseGuards, BadRequestException, UseInterceptors, UploadedFile, Req } from '@nestjs/common';
+import express from 'express';
 import { ProductsService } from './products.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
+import { FileInterceptor } from '@nestjs/platform-express';
 
 @Controller('products')
 export class ProductsController {
@@ -66,11 +68,40 @@ export class ProductsController {
   }
 
   @UseGuards(JwtAuthGuard)
-@Patch(':id')
-async updateProduct(
-  @Param('id') id: string,
-  @Body() updateProductDto: UpdateProductDto
-) {
-  return await this.productsService.update(+id, updateProductDto);
-}
+  @Patch(':id')
+  async updateProduct(
+    @Param('id') id: string,
+    @Body() updateProductDto: UpdateProductDto
+  ) {
+    return await this.productsService.update(+id, updateProductDto);
+  }
+
+
+  @Post('import-stock')
+  @UseInterceptors(FileInterceptor('file'))
+  async importStockExcel(
+    @UploadedFile() file: any,
+    @Req() req: express.Request,
+  ) {
+
+    if (!file) {
+      throw new BadRequestException(
+        'Debe adjuntar un archivo Excel',
+      );
+    }
+
+    const warehouseId =
+      (req.user as any).warehouseId;
+
+    if (!warehouseId) {
+      throw new BadRequestException(
+        'El usuario no tiene almacén asignado',
+      );
+    }
+
+    return await this.productsService.importStockExcel(
+      warehouseId,
+      file,
+    );
+  }
 }
