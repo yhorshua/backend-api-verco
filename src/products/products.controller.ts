@@ -78,32 +78,24 @@ export class ProductsController {
 
 
   @Post('import-stock')
+  @UseGuards(JwtAuthGuard)
   @UseInterceptors(FileInterceptor('file'))
   async importStockExcel(
     @UploadedFile() file: any,
-    @Req() req: express.Request,
+    @Req() req: any,
   ) {
-
     if (!file) {
-      throw new BadRequestException(
-        'Debe adjuntar un archivo Excel',
-      );
+      throw new BadRequestException('Debe adjuntar un archivo Excel');
     }
 
-    const warehouseId =
-      (req.user as any).warehouseId;
+    const warehouseId = req.user?.warehouseId;
 
     if (!warehouseId) {
-      throw new BadRequestException(
-        'El usuario no tiene almacén asignado',
-      );
+      throw new BadRequestException('El usuario no tiene almacén asignado');
     }
 
-    return await this.productsService.importStockExcel(
-      warehouseId,
-      file,
-    );
+    return this.productsService.importStockExcel(warehouseId, file);
   }
 
-  
+
 }
