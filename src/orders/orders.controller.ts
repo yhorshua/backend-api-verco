@@ -1,10 +1,11 @@
-import { Body, Controller, Get, Param, Post, Query, Req } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { OrdersService } from './orders.service';
 import { CreateOrderDto } from './dto/CreateOrderDto';
 import { ApproveOrderDto } from './dto/approve-order.dto';
 import { RejectOrderDto } from './dto/reject-order.dto';
 import { ListOrdersDto } from './dto/list-orders.dto';
 import { ListOrdersAdvancedDto } from './dto/list-orders-advanced.dto';
+import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
 
 @Controller('orders')
 export class OrdersController {
@@ -16,14 +17,25 @@ export class OrdersController {
   }
 
   @Get('by-role')
+  @UseGuards(JwtAuthGuard)
   getByRole(
     @Query() q: ListOrdersAdvancedDto,
     @Req() req: any,
   ) {
+
+    const userId =
+      req.user?.userId ||
+      req.user?.id ||
+      req.user?.sub;
+
+    const role =
+      req.user?.role?.name_role ||
+      req.user?.role;
+
     return this.service.listOrdersByUserAndRole(
       q,
-      req.user.userId,
-      req.user.role,
+      userId,
+      role,
     );
   }
   @Get()
