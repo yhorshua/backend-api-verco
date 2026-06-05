@@ -330,6 +330,12 @@ export class OrdersService {
         });
         break;
 
+        case 'Vendedor Web':
+        qb.andWhere('o.user_id = :userId', {
+          userId,
+        });
+        break;
+
       case 'Jefe Ventas':
       case 'Administrador':
       case 'Almacenero':
