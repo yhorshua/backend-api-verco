@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Injectable,
   NotFoundException,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Repository } from 'typeorm';
@@ -305,7 +306,11 @@ export class OrdersService {
     return { order, details, totalUnidades, totalPrecio };
   }
 
-  async listOrdersByUserAndRole(dto: ListOrdersAdvancedDto) {
+  async listOrdersByUserAndRole(
+    dto: ListOrdersAdvancedDto,
+    userId: number,
+    role: string,
+  ) {
     const qb = this.orderRepo
       .createQueryBuilder('o')
       .leftJoinAndSelect('o.user', 'u')
@@ -314,71 +319,167 @@ export class OrdersService {
       .leftJoinAndSelect('d.product', 'p')
       .orderBy('o.request_date', 'DESC');
 
-    const role = dto.role?.toUpperCase();
+    // =========================================
+    // VALIDACIÓN POR ROL
+    // =========================================
 
-    // Filtro por vendedor
-    if (role === 'VENDEDOR') {
-      qb.andWhere('o.user_id = :userId', { userId: dto.user_id });
+    switch (role) {
+      case 'Vendedor':
+        qb.andWhere('o.user_id = :userId', {
+          userId,
+        });
+        break;
+
+      case 'Jefe Ventas':
+      case 'Administrador':
+      case 'Almacenero':
+        // Ve todos los pedidos
+        break;
+
+      default:
+        throw new UnauthorizedException(
+          'No tiene permisos para consultar pedidos',
+        );
     }
 
-    // Filtros avanzados
-    if (dto.client_id) qb.andWhere('o.client_id = :client', { client: dto.client_id });
-    if (dto.seller_id) qb.andWhere('o.user_id = :seller', { seller: dto.seller_id });
-    if (dto.status) qb.andWhere('o.order_status_id = :status', { status: dto.status });
-    if (dto.date_from) qb.andWhere('o.request_date >= :from', { from: dto.date_from });
-    if (dto.date_to) qb.andWhere('o.request_date <= :to', { to: dto.date_to });
+    // =========================================
+    // FILTROS
+    // =========================================
+
+    if (dto.client_id) {
+      qb.andWhere('o.client_id = :client', {
+        client: dto.client_id,
+      });
+    }
+
+    // Solo jefe/administrador pueden filtrar vendedor
+    if (
+      dto.seller_id &&
+      ['Administrador', 'Jefe Ventas'].includes(role)
+    ) {
+      qb.andWhere('o.user_id = :seller', {
+        seller: dto.seller_id,
+      });
+    }
+
+    if (dto.status) {
+      qb.andWhere('o.order_status_id = :status', {
+        status: dto.status,
+      });
+    }
+
+    if (dto.date_from) {
+      qb.andWhere('o.request_date >= :from', {
+        from: dto.date_from,
+      });
+    }
+
+    if (dto.date_to) {
+      qb.andWhere('o.request_date <= :to', {
+        to: dto.date_to,
+      });
+    }
 
     const orders = await qb.getMany();
 
-    // Mapear los datos para frontend
     return orders.map((o) => {
-      const totalUnidades = o.details?.reduce((acc, d) => acc + d.quantity, 0) || 0;
-      const totalPrecio = o.details?.reduce(
-        (acc, d) => acc + d.quantity * Number(d.unit_price),
-        0
-      ) || 0;
+      const totalUnidades =
+        o.details?.reduce(
+          (acc, d) => acc + d.quantity,
+          0,
+        ) || 0;
 
-      const items = o.details?.map((d) => ({
-        codigo: d.product?.article_code ?? '',
-        descripcion: d.product?.article_description ?? '',
-        serie: d.product?.series ?? '',
-        precio: Number(d.unit_price),
-        total: d.quantity,
-        cantidades: { [d.size ?? 0]: d.quantity },
-      })) || [];
+      const totalPrecio =
+        o.details?.reduce(
+          (acc, d) =>
+            acc + d.quantity * Number(d.unit_price),
+          0,
+        ) || 0;
+
+      const items =
+        o.details?.map((d) => ({
+          codigo:
+            d.product?.article_code ?? '',
+
+          descripcion:
+            d.product?.article_description ?? '',
+
+          serie:
+            d.product?.series ?? '',
+
+          precio:
+            Number(d.unit_price),
+
+          total:
+            d.quantity,
+
+          cantidades: {
+            [d.size ?? 0]:
+              d.quantity,
+          },
+        })) || [];
 
       return {
         id: String(o.id),
+
         cliente: {
-          codigo: o.client?.id ?? '',
-          nombre: o.client?.business_name ?? '',
-          ruc: o.client?.document_number ?? '',
-          direccion: o.client?.address ?? '',
+          codigo:
+            o.client?.id ?? '',
+
+          nombre:
+            o.client?.business_name ?? '',
+
+          ruc:
+            o.client?.document_number ?? '',
+
+          direccion:
+            o.client?.address ?? '',
         },
-        vendedor: o.user?.full_name ?? '',
-        fechaRegistro: o.request_date?.toISOString().split('T')[0] ?? '',
+
+        vendedor:
+          o.user?.full_name ?? '',
+
+        vendedorId:
+          o.user?.id ?? null,
+
+        fechaRegistro:
+          o.request_date
+            ?.toISOString()
+            .split('T')[0] ?? '',
+
         estado:
           o.order_status_id === OrderStatusEnum.PENDIENTE
             ? 'Pendiente'
-            : o.order_status_id === OrderStatusEnum.APROBADO
+            : o.order_status_id ===
+              OrderStatusEnum.APROBADO
               ? 'Aprobado'
-              : o.order_status_id === OrderStatusEnum.RECHAZADO
+              : o.order_status_id ===
+                OrderStatusEnum.RECHAZADO
                 ? 'Rechazado'
-                : o.order_status_id === OrderStatusEnum.EN_ALISTAMIENTO
+                : o.order_status_id ===
+                  OrderStatusEnum.EN_ALISTAMIENTO
                   ? 'En Alistamiento'
-                  : o.order_status_id === OrderStatusEnum.ALISTADO
+                  : o.order_status_id ===
+                    OrderStatusEnum.ALISTADO
                     ? 'Alistado'
-                    : o.order_status_id === OrderStatusEnum.GUIA_INTERNA_GENERADA
+                    : o.order_status_id ===
+                      OrderStatusEnum.GUIA_INTERNA_GENERADA
                       ? 'Guia Interna Generada'
-                      : o.order_status_id === OrderStatusEnum.DESPACHADO
+                      : o.order_status_id ===
+                        OrderStatusEnum.DESPACHADO
                         ? 'Despachado'
-                        : o.order_status_id === OrderStatusEnum.FACTURADO
+                        : o.order_status_id ===
+                          OrderStatusEnum.FACTURADO
                           ? 'Facturado'
-                          : o.order_status_id === OrderStatusEnum.CERRADO
+                          : o.order_status_id ===
+                            OrderStatusEnum.CERRADO
                             ? 'Cerrado'
                             : 'Desconocido',
+
         totalUnidades,
+
         totalPrecio,
+
         items,
       };
     });
@@ -386,25 +487,25 @@ export class OrdersService {
 
 
   async markAsDelivered(orderId: number, userId: number, notes?: string) {
-  const order = await this.orderRepo.findOne({ where: { id: orderId } });
+    const order = await this.orderRepo.findOne({ where: { id: orderId } });
 
-  if (!order) throw new NotFoundException('Pedido no encontrado');
+    if (!order) throw new NotFoundException('Pedido no encontrado');
 
-  if (order.order_status_id !== OrderStatusEnum.DESPACHADO) {
-    throw new BadRequestException('Solo pedidos despachados pueden cerrarse');
+    if (order.order_status_id !== OrderStatusEnum.DESPACHADO) {
+      throw new BadRequestException('Solo pedidos despachados pueden cerrarse');
+    }
+
+    order.order_status_id = OrderStatusEnum.CERRADO;
+    order.delivered_at = new Date();
+
+    order.delivered_by = userId;
+    order.delivery_status = DeliveryStatusEnum.ENTREGADO;
+    order.delivery_notes = notes ?? '';
+
+    await this.orderRepo.save(order);
+
+    return { ok: true };
   }
-
-  order.order_status_id = OrderStatusEnum.CERRADO;
-  order.delivered_at = new Date();
-
-  order.delivered_by = userId;
-  order.delivery_status = DeliveryStatusEnum.ENTREGADO;
-  order.delivery_notes = notes ?? '';
-
-  await this.orderRepo.save(order);
-
-  return { ok: true };
-}
 
 }
 

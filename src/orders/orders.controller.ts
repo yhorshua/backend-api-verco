@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, Req } from '@nestjs/common';
 import { OrdersService } from './orders.service';
 import { CreateOrderDto } from './dto/CreateOrderDto';
 import { ApproveOrderDto } from './dto/approve-order.dto';
@@ -16,10 +16,16 @@ export class OrdersController {
   }
 
   @Get('by-role')
-  getByRole(@Query() q: ListOrdersAdvancedDto) {
-    return this.service.listOrdersByUserAndRole(q);
+  getByRole(
+    @Query() q: ListOrdersAdvancedDto,
+    @Req() req: any,
+  ) {
+    return this.service.listOrdersByUserAndRole(
+      q,
+      req.user.userId,
+      req.user.role,
+    );
   }
-
   @Get()
   list(@Query() q: ListOrdersDto) {
     return this.service.listOrders(q);
