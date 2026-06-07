@@ -21,6 +21,7 @@ async function bootstrap() {
       'https://vercosystem-production.up.railway.app',
       'https://verco-system-xdke.vercel.app',
       'https://verco-system-xdke-9j17ywjsu-yhorshuas-projects.vercel.app',
+      'https://verco.online/',
     ],
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
     credentials: true,
