@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { DataSource, Repository } from 'typeorm';
 import { CreateAbonoDto } from './dto/create-abono.dto';
 
-import { EstadoCuenta } from '../database/entities/estado-cuenta.entity';
+import { EstadoCuenta, EstadoCuentaEnum } from '../database/entities/estado-cuenta.entity';
 import { Abono } from '../database/entities/abono.entity';
 import { EstadoCuentaHistorial } from '../database/entities/estado-cuenta-historial.entity';
 
@@ -153,7 +153,6 @@ export class CreditService {
           monto_abono: abono,
           tipo_abono: dto.tipo_abono,
           moneda_abono: dto.moneda_abono,
-          id_estado_cuenta: dto.id_estado_cuenta,
           fecha_abono: nowPeru,
         }),
       );
@@ -164,8 +163,13 @@ export class CreditService {
       estado.monto_pago = Number((pagoPrevio + abono).toFixed(2));
       estado.monto_saldo = Number((saldoAnterior - abono).toFixed(2));
 
-      estado.estado = estado.monto_saldo === 0 ? 'PAGADO' : 'PENDIENTE';
-
+      if (estado.monto_saldo <= 0) {
+        estado.estado = EstadoCuentaEnum.PAGADO;
+      } else if (estado.monto_pago > 0) {
+        estado.estado = EstadoCuentaEnum.PARCIAL;
+      } else {
+        estado.estado = EstadoCuentaEnum.PENDIENTE;
+      }
       await estadoRepo.save(estado);
 
       // ✅ Historial
