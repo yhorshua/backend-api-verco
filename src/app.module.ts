@@ -55,6 +55,9 @@ import { GuiaInternaModule } from './guia-interna/guia-interna.module';
 import { WebSale } from './database/entities/webSale.entity';
 import { WebSaleDetail } from './database/entities/webDetail.entity';
 import { WebSaleModule } from './webSale/websale.modules';
+import { EstadoCuentaModule } from './estadoCuenta/estado-cuenta.module';
+import { SaldoFavorCliente } from './database/entities/saldoFavorCliente';
+import { AbonoDetalle } from './database/entities/abonoDetalle.entity';
 
 @Module({
   imports: [
@@ -107,6 +110,8 @@ import { WebSaleModule } from './webSale/websale.modules';
         GuiaInternaDetalle,
         WebSale,
         WebSaleDetail,
+        SaldoFavorCliente,
+        AbonoDetalle,
       ],
     }),
 
@@ -128,6 +133,7 @@ import { WebSaleModule } from './webSale/websale.modules';
     SaleModule,
     GuiaInternaModule,
     WebSaleModule,
+    EstadoCuentaModule,
   ],
   controllers: [AppController],
   providers: [AppService],

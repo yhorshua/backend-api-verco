@@ -6,7 +6,7 @@ import { CreateGuiaInternaDto } from './dto/create-guia-interna.dto';
 
 import { GuiaInterna } from '../database/entities/guia-interna.entity';
 import { GuiaInternaDetalle } from '../database/entities/guia-interna-detalle.entity';
-import { EstadoCuenta } from '../database/entities/estado-cuenta.entity';
+import { EstadoCuenta, EstadoCuentaEnum, TipoCreditoEnum } from '../database/entities/estado-cuenta.entity';
 
 import { Order } from '../database/entities/orders.entity';
 import { OrderDetail } from '../database/entities/order-details.entity';
@@ -171,6 +171,11 @@ export class GuiaInternaService {
       let estado = await estadoCuentaRepo.findOne({
         where: { id_guia_interna: guia.id },
       });
+      const fechaVencimiento =
+        dto.tipo_credito === TipoCreditoEnum.CREDITO &&
+          dto.fecha_vencimiento
+          ? new Date(dto.fecha_vencimiento)
+          : undefined;
 
       if (!estado) {
         estado = await estadoCuentaRepo.save(
@@ -181,6 +186,11 @@ export class GuiaInternaService {
             monto_pago: 0,
             monto_saldo: guia.total_precio,
             id_guia_interna: guia.id,
+            estado: EstadoCuentaEnum.PENDIENTE,
+
+            tipo_credito: dto.tipo_credito,
+
+            fecha_vencimiento: fechaVencimiento,
           }),
         );
       }
