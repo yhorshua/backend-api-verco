@@ -210,8 +210,14 @@ export class PackingService {
          2️⃣ DATA NECESARIA (OPTIMIZADO)
       ============================================================ */
 
-      const productIds = [...new Set(details.map((d: any) => d.product_id))];
-
+      const productIds = [
+        ...new Set(
+          details
+            .map((d: any) => Number(d.product_id))
+            .filter((id: number) => !isNaN(id))
+        ),
+      ];
+      
       const products = await productRepo.find({
         where: { id: In(productIds) },
         select: ['id', 'article_code'] as any,
@@ -309,7 +315,7 @@ export class PackingService {
       const stocks = await stockRepo.find({
         where: {
           warehouse_id: order.warehouse_id,
-          product_id: productIds as any,
+          product_id: In(productIds),
         },
       });
 
