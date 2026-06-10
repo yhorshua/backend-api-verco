@@ -60,4 +60,18 @@ export class WebSaleController {
 
   }
 
+  @Get()
+  @UseGuards(JwtAuthGuard)
+  async getReport(
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+    @Query('userId') userId?: string,
+  ) {
+    return await this.webSaleService.getWebSalesReport({
+      startDate,
+      endDate,
+      userId: userId ? String(userId) : undefined,
+    });
+  }
+
 }

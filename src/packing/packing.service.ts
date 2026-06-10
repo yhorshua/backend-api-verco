@@ -409,8 +409,13 @@ export class PackingService {
     const productIds = Array.from(new Set(orderDetails.map((d: any) => d.product_id)));
 
     const products = await this.productRepo.find({
-      where: { id: productIds as any },
-      select: ['id', 'article_code'] as any,
+      where: {
+        id: In(productIds),
+      },
+      select: {
+        id: true,
+        article_code: true,
+      },
     });
 
     const codeById = new Map(products.map((p: any) => [p.id, p.article_code]));
