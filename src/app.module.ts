@@ -58,12 +58,16 @@ import { WebSaleModule } from './webSale/websale.modules';
 import { EstadoCuentaModule } from './estadoCuenta/estado-cuenta.module';
 import { SaldoFavorCliente } from './database/entities/saldoFavorCliente';
 import { AbonoDetalle } from './database/entities/abonoDetalle.entity';
+import { EventEmitterModule } from '@nestjs/event-emitter';
+import { DashboardModule } from './dashCounter/dashCounter.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
     }),
+
+    EventEmitterModule.forRoot(),
 
     TypeOrmModule.forRoot({
       type: 'mysql',                                      // 👈 CAMBIADO
@@ -134,6 +138,7 @@ import { AbonoDetalle } from './database/entities/abonoDetalle.entity';
     GuiaInternaModule,
     WebSaleModule,
     EstadoCuentaModule,
+    DashboardModule,
   ],
   controllers: [AppController],
   providers: [AppService],

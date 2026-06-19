@@ -20,6 +20,8 @@ import { StockReservationStatus } from '../database/entities/stock-reservation-s
 import { ListOrdersAdvancedDto } from './dto/list-orders-advanced.dto';
 import { OrderStatusEnum } from './dto/orderStatusEnum';
 import { DeliveryStatusEnum } from './dto/statusDelivered.dto';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { DASHBOARD_EVENTS } from '../dashCounter/dto/dashboard-events.constants';
 
 
 @Injectable()
@@ -44,6 +46,8 @@ export class OrdersService {
 
     @InjectRepository(StockReservation)
     private readonly reservationRepo: Repository<StockReservation>,
+
+    private readonly eventEmitter: EventEmitter2,
   ) { }
 
   /* ============================================================
@@ -60,7 +64,7 @@ export class OrdersService {
       throw new BadRequestException('Debe enviar referencia de pago');
     }
 
-    return this.dataSource.transaction(async (manager) => {
+    const result = await this.dataSource.transaction(async (manager) => {
       const orderRepo = manager.getRepository(Order);
       const detailRepo = manager.getRepository(OrderDetail);
       const stockRepo = manager.getRepository(Stock);
@@ -217,7 +221,18 @@ export class OrdersService {
       }
 
       return { order: savedOrder };
+
+
     });
+
+    this.eventEmitter.emit('order.created', {
+      message: 'Nuevo pedido registrado',
+      proforma: result.order.proforma_number,
+      customerName: result.order.customer_name ?? 'Cliente no especificado',
+    });
+
+    return result;
+
   }
 
   /* ============================================================

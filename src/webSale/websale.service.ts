@@ -17,6 +17,8 @@ import { FilterWebSaleDto } from './dto/filter-websale.dto';
 import { UpdateWebSaleDto } from './dto/updateWebSaleDto';
 import { DeliverSaleDto } from './dto/deliverySaleDto';
 import { WebSalesReportFiltersDto } from './dto/web-sales-report.dto';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { DASHBOARD_EVENTS } from '../dashCounter/dto/dashboard-events.constants';
 
 @Injectable()
 export class WebSaleService {
@@ -27,6 +29,8 @@ export class WebSaleService {
 
     @InjectRepository(WebSaleDetail)
     private readonly detailRepository: Repository<WebSaleDetail>,
+
+    private readonly eventEmitter: EventEmitter2,
   ) { }
 
   async create(createDto: CreateWebSaleDto) {
@@ -69,6 +73,16 @@ export class WebSaleService {
 
     await this.detailRepository.save(details);
 
+    await this.detailRepository.save(details);
+
+    const ticket = `Ticket-${String(savedSale.id).padStart(6, '0')}`;
+
+    this.eventEmitter.emit(DASHBOARD_EVENTS.WEBSALE_CREATED, {
+      saleId: savedSale.id,
+      customerName: savedSale.customer_name,
+      ticket,
+    });
+    
     return {
       message: 'Venta registrada correctamente',
       sale_id: savedSale.id
@@ -902,11 +916,11 @@ export class WebSaleService {
       const margen =
         vendedor.total_importe_vendido > 0
           ? Number(
-              (
-                (vendedor.total_utilidad / vendedor.total_importe_vendido) *
-                100
-              ).toFixed(2),
-            )
+            (
+              (vendedor.total_utilidad / vendedor.total_importe_vendido) *
+              100
+            ).toFixed(2),
+          )
           : 0;
 
       return {
@@ -938,11 +952,11 @@ export class WebSaleService {
       const margen =
         producto.total_importe_vendido > 0
           ? Number(
-              (
-                (producto.total_utilidad / producto.total_importe_vendido) *
-                100
-              ).toFixed(2),
-            )
+            (
+              (producto.total_utilidad / producto.total_importe_vendido) *
+              100
+            ).toFixed(2),
+          )
           : 0;
 
       return {
