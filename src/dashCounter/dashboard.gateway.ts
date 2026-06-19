@@ -31,7 +31,7 @@ export class DashboardGateway implements OnGatewayConnection, OnGatewayDisconnec
 
         if (this.isSalesManager(roleName)) {
             client.join(this.salesManagerRoom);
-            console.log(`Jefe de ventas conectado: ${client.id}`);
+            this.emitCountersToSalesManager();
         } else {
             console.log(`Cliente conectado: ${client.id}`);
         }
