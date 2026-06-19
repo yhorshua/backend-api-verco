@@ -1,82 +1,91 @@
 import {
-  ConnectedSocket,
-  MessageBody,
-  OnGatewayConnection,
-  OnGatewayDisconnect,
-  SubscribeMessage,
-  WebSocketGateway,
-  WebSocketServer,
+    ConnectedSocket,
+    MessageBody,
+    OnGatewayConnection,
+    OnGatewayDisconnect,
+    SubscribeMessage,
+    WebSocketGateway,
+    WebSocketServer,
 } from '@nestjs/websockets';
 
 import { Server, Socket } from 'socket.io';
+import { DashboardCountersService } from './dashCounter.service';
 
 @WebSocketGateway({
-  cors: {
-    origin: '*',
-  },
+    cors: {
+        origin: '*',
+    },
 })
 export class DashboardGateway implements OnGatewayConnection, OnGatewayDisconnect {
-  @WebSocketServer()
-  server!: Server;
+    @WebSocketServer()
+    server!: Server;
 
-  private readonly salesManagerRoom = 'role:jefe-ventas';
+    private readonly salesManagerRoom = 'role:jefe-ventas';
 
-  handleConnection(client: Socket) {
-    const roleName = client.handshake.auth?.roleName;
+    constructor(
+        private readonly countersService: DashboardCountersService,
+    ) { }
 
-    if (this.isSalesManager(roleName)) {
-      client.join(this.salesManagerRoom);
-      console.log(`Jefe de ventas conectado: ${client.id}`);
-    } else {
-      console.log(`Cliente conectado: ${client.id}`);
-    }
-  }
+    handleConnection(client: Socket) {
+        const roleName = client.handshake.auth?.roleName;
 
-  handleDisconnect(client: Socket) {
-    console.log(`Cliente desconectado: ${client.id}`);
-  }
-
-  @SubscribeMessage('dashboard:join')
-  handleJoinDashboard(
-    @ConnectedSocket() client: Socket,
-    @MessageBody() body: any,
-  ) {
-    const roleName = body?.roleName;
-
-    if (!this.isSalesManager(roleName)) {
-      return {
-        ok: false,
-        message: 'No autorizado para recibir notificaciones del dashboard',
-      };
+        if (this.isSalesManager(roleName)) {
+            client.join(this.salesManagerRoom);
+            console.log(`Jefe de ventas conectado: ${client.id}`);
+        } else {
+            console.log(`Cliente conectado: ${client.id}`);
+        }
     }
 
-    client.join(this.salesManagerRoom);
+    handleDisconnect(client: Socket) {
+        console.log(`Cliente desconectado: ${client.id}`);
+    }
 
-    return {
-      ok: true,
-      room: this.salesManagerRoom,
-    };
-  }
+    @SubscribeMessage('dashboard:join')
+    handleJoinDashboard(
+        @ConnectedSocket() client: Socket,
+        @MessageBody() body: any,
+    ) {
+        const roleName = body?.roleName;
 
-  emitCountersToSalesManager(data: any) {
-    this.server
-      .to(this.salesManagerRoom)
-      .emit('dashboard:counters', data);
-  }
+        if (!this.isSalesManager(roleName)) {
+            return {
+                ok: false,
+                message: 'No autorizado para recibir notificaciones del dashboard',
+            };
+        }
 
-  emitWebSaleToSalesManager(data: any) {
-    this.server
-      .to(this.salesManagerRoom)
-      .emit('websale:new', data);
-  }
+        client.join(this.salesManagerRoom);
 
-  emitOrderToSalesManager(data: any) {
-    this.server
-      .to(this.salesManagerRoom)
-      .emit('order:new', data);
-  }
+        return {
+            ok: true,
+            room: this.salesManagerRoom,
+        };
+    }
 
-  private isSalesManager(roleName: string): boolean {
-    return roleName === 'Jefe Ventas' || roleName === 'Administrador';
-  }
+    async emitCountersToSalesManager() {
+        const counters = await this.countersService.getSalesManagerCounters();
+
+        this.server
+            .to(this.salesManagerRoom)
+            .emit('dashboard:counters', counters);
+    }
+    emitWebSaleToSalesManager(data: any) {
+        this.server
+            .to(this.salesManagerRoom)
+            .emit('websale:new', data);
+            this.emitCountersToSalesManager();
+    }
+
+    emitOrderToSalesManager(data: any) {
+        this.server
+            .to(this.salesManagerRoom)
+            .emit('order:new', data);
+            this.emitCountersToSalesManager();
+    }
+
+    private isSalesManager(roleName: string): boolean {
+        return roleName === 'Jefe Ventas' || roleName === 'Administrador';
+    }
+
 }

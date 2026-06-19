@@ -22,8 +22,6 @@ export class DashboardEventsListener {
       ticket: payload.ticket,
       customerName: payload.customerName,
     });
-
-    this.gateway.emitCountersToSalesManager(counters);
   }
 
   // 🔥 NUEVO PEDIDO
@@ -37,6 +35,5 @@ export class DashboardEventsListener {
       customerName: payload.customerName,
     });
 
-    this.gateway.emitCountersToSalesManager(counters);
   }
 }
