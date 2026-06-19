@@ -82,7 +82,7 @@ export class WebSaleService {
       customerName: savedSale.customer_name,
       ticket,
     });
-    
+
     return {
       message: 'Venta registrada correctamente',
       sale_id: savedSale.id
@@ -642,7 +642,7 @@ export class WebSaleService {
         const subtotalRegistrado = Number(detail.subtotal || 0);
 
         const precioCompraUnitario = Number(
-          detail.product?.manufacturing_cost || 0,
+          detail.product?.unit_price || 0,
         );
 
         const costoCompraTotal = precioCompraUnitario * quantity;
