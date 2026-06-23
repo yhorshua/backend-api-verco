@@ -221,19 +221,82 @@ export class WebSaleService {
 
     const query = this.saleRepository
       .createQueryBuilder('sale')
-      .leftJoinAndSelect('sale.details', 'details')
-      .leftJoinAndSelect('details.product', 'product')
-      .leftJoinAndSelect('details.productSize', 'productSize')
-      .leftJoinAndSelect('sale.user', 'user')
-      .leftJoinAndSelect('user.role', 'role');
 
-    // =========================================
-    // OBTENER DATOS DEL USUARIO LOGUEADO
-    // =========================================
+      .leftJoin('sale.details', 'details')
+      .leftJoin('details.product', 'product')
+      .leftJoin('details.productSize', 'productSize')
+      .leftJoin('sale.user', 'seller')
+      .leftJoin('seller.role', 'role');
+
+
+    query.select([
+
+      // =====================
+      // SALE
+      // =====================
+
+      'sale.id',
+      'sale.customer_name',
+      'sale.customer_phone',
+      'sale.customer_address',
+      'sale.customer_dni',
+
+      'sale.department',
+      'sale.province',
+      'sale.district',
+
+      'sale.payment_method',
+      'sale.total_amount',
+      'sale.status',
+      'sale.created_at',
+
+      'sale.shipping_code',
+      'sale.is_agency_delivery',
+      'sale.agency_name',
+
+      'sale.observations',
+
+
+      // =====================
+      // DETAILS
+      // =====================
+
+      'details.id',
+      'details.quantity',
+      'details.size',
+      'details.sale_price',
+      'details.subtotal',
+
+
+      // =====================
+      // PRODUCT
+      // =====================
+
+      'product.id',
+      'product.article_code',
+      'product.article_description',
+      'product.product_image',
+
+
+      // =====================
+      // USER
+      // =====================
+
+      'seller.id',
+      'seller.full_name',
+      'seller.email',
+
+      'role.id',
+      'role.name_role'
+
+    ]);
+
+
 
     const roleName =
       user?.role?.name_role ||
       user?.role;
+
 
     const userId =
       user?.userId ||
@@ -241,16 +304,18 @@ export class WebSaleService {
       user?.sub;
 
 
-    // =========================================
-    // VALIDACION POR ROL
-    // =========================================
+
+    // ==========================
+    // PERMISOS
+    // ==========================
 
     switch (roleName) {
+
 
       case 'Vendedor Web':
 
         query.andWhere(
-          'user.id = :userId',
+          'seller.id = :userId',
           {
             userId
           }
@@ -258,32 +323,43 @@ export class WebSaleService {
 
         break;
 
+
+
       case 'Delivery':
 
         query.andWhere(
-          'sale.status = :statusDelivery',
+          'sale.status = :status',
           {
-            statusDelivery: WebSaleStatus.DISPATCHED
+            status: WebSaleStatus.DISPATCHED
           }
         );
 
         break;
 
+
+
       case 'Jefe Ventas':
       case 'Almacen':
       case 'Administrador':
-        // Ve todas las ventas
+
         break;
 
+
       default:
+
         throw new UnauthorizedException(
-          'No tiene permisos para consultar ventas'
+          'No tiene permisos'
         );
+
     }
 
-    // =========================================
-    // FILTRO POR ESTADO
-    // =========================================
+
+
+
+    // ==========================
+    // FILTROS
+    // ==========================
+
 
     if (filters.status) {
 
@@ -293,149 +369,142 @@ export class WebSaleService {
           status: filters.status
         }
       );
+
     }
 
-    // =========================================
-    // FILTRO FECHA INICIO
-    // =========================================
+
 
     if (filters.startDate) {
 
       query.andWhere(
-        'DATE(sale.created_at) >= :startDate',
+        'sale.created_at >= :start',
         {
-          startDate: filters.startDate
+          start:
+            `${filters.startDate} 00:00:00`
         }
       );
+
     }
 
-    // =========================================
-    // FILTRO FECHA FIN
-    // =========================================
+
 
     if (filters.endDate) {
 
       query.andWhere(
-        'DATE(sale.created_at) <= :endDate',
+        'sale.created_at <= :end',
         {
-          endDate: filters.endDate
+          end:
+            `${filters.endDate} 23:59:59`
         }
       );
+
     }
 
-    if (roleName === 'Delivery') {
 
-      query.andWhere(
-        'sale.status = :statusDelivery',
-        {
-          statusDelivery: WebSaleStatus.DISPATCHED
-        }
-      );
-
-    } else if (filters.status) {
-
-      query.andWhere(
-        'sale.status = :status',
-        {
-          status: filters.status
-        }
-      );
-    }
-    // =========================================
-    // ORDENAMIENTO
-    // =========================================
 
     query.orderBy(
       'sale.created_at',
       'DESC'
     );
 
-    // =========================================
-    // DEBUG SQL
-    // =========================================
 
-    console.log(
-      'SQL:',
-      query.getSql()
-    );
 
-    console.log(
-      'PARAMS:',
-      query.getParameters()
-    );
+    const sales =
+      await query.getMany();
 
-    const sales = await query.getMany();
+
 
     return sales.map(sale => ({
 
       id: sale.id,
 
-      ticket: `Ticket-${String(sale.id).padStart(6, '0')}`,
+      ticket:
+        `Ticket-${String(sale.id).padStart(6, '0')}`,
 
-      customer_name: sale.customer_name,
+      customer_name:
+        sale.customer_name,
 
-      customer_phone: sale.customer_phone,
 
-      customer_address: sale.customer_address,
+      customer_phone:
+        sale.customer_phone,
 
-      customer_dni: sale.customer_dni,
 
-      department: sale.department,
+      customer_address:
+        sale.customer_address,
 
-      province: sale.province,
 
-      district: sale.district,
+      total_amount:
+        sale.total_amount,
 
-      payment_method: sale.payment_method,
 
-      observations: sale.observations,
+      status:
+        sale.status,
 
-      total_amount: sale.total_amount,
 
-      status: sale.status,
+      created_at:
+        sale.created_at,
 
-      created_at: sale.created_at,
-
-      shipping_code: sale.shipping_code,
-
-      is_agency_delivery: sale.is_agency_delivery,
-
-      agency_name: sale.agency_name,
 
       seller: {
+
         id: sale.user?.id,
-        full_name: sale.user?.full_name,
-        email: sale.user?.email,
-        role: sale.user?.role?.name_role
+
+        full_name:
+          sale.user?.full_name,
+
+        email:
+          sale.user?.email,
+
+        role:
+          sale.user?.role?.name_role
+
       },
 
-      total_products: sale.details?.length || 0,
 
-      details: sale.details.map(detail => ({
+      total_products:
+        sale.details?.length || 0,
 
-        id: detail.id,
 
-        product_id: detail.product_id,
+      details:
 
-        product_name:
-          detail.product?.article_description,
+        sale.details.map(detail => ({
 
-        article_code:
-          detail.product?.article_code,
+          id:
+            detail.id,
 
-        image:
-          detail.product?.product_image,
 
-        size: detail.size,
+          product_name:
+            detail.product?.article_description,
 
-        quantity: detail.quantity,
 
-        sale_price: detail.sale_price,
+          article_code:
+            detail.product?.article_code,
 
-        subtotal: detail.subtotal
 
-      }))
+          image:
+            detail.product?.product_image,
+
+
+          size:
+            detail.size,
+
+
+          quantity:
+            detail.quantity,
+
+
+          sale_price:
+            detail.sale_price,
+
+
+          subtotal:
+            detail.subtotal
+
+        }))
+
+
     }));
+
   }
 
   async deliverSale(
