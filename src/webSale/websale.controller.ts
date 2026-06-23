@@ -45,6 +45,9 @@ export class WebSaleController {
   async findFilteredSales(
     @Req() req,
     @Query() filters: FilterWebSaleDto) {
+
+      console.log('******** GET LIST ********');
+  console.log(req.originalUrl);
     return await this.webSaleService.findFilteredSales(req.user, filters);
   }
 
@@ -63,10 +66,14 @@ export class WebSaleController {
   @Get()
   @UseGuards(JwtAuthGuard)
   async getReport(
+    @Req() req,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
     @Query('userId') userId?: string,
   ) {
+
+     console.log('******** GET REPORT ********');
+  console.log(req.originalUrl);
     return await this.webSaleService.getWebSalesReport({
       startDate,
       endDate,
