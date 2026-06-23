@@ -222,75 +222,30 @@ export class WebSaleService {
     const query = this.saleRepository
       .createQueryBuilder('sale')
 
-      .leftJoin('sale.details', 'details')
-      .leftJoin('details.product', 'product')
-      .leftJoin('details.productSize', 'productSize')
-      .leftJoin('sale.user', 'seller')
-      .leftJoin('seller.role', 'role');
+      .leftJoinAndSelect(
+        'sale.details',
+        'details'
+      )
 
+      .leftJoinAndSelect(
+        'details.product',
+        'product'
+      )
 
-    query.select([
+      .leftJoinAndSelect(
+        'details.productSize',
+        'productSize'
+      )
 
-      // =====================
-      // SALE
-      // =====================
+      .leftJoinAndSelect(
+        'sale.user',
+        'user'
+      )
 
-      'sale.id',
-      'sale.customer_name',
-      'sale.customer_phone',
-      'sale.customer_address',
-      'sale.customer_dni',
-
-      'sale.department',
-      'sale.province',
-      'sale.district',
-
-      'sale.payment_method',
-      'sale.total_amount',
-      'sale.status',
-      'sale.created_at',
-
-      'sale.shipping_code',
-      'sale.is_agency_delivery',
-      'sale.agency_name',
-
-      'sale.observations',
-
-
-      // =====================
-      // DETAILS
-      // =====================
-
-      'details.id',
-      'details.quantity',
-      'details.size',
-      'details.sale_price',
-      'details.subtotal',
-
-
-      // =====================
-      // PRODUCT
-      // =====================
-
-      'product.id',
-      'product.article_code',
-      'product.article_description',
-      'product.product_image',
-
-
-      // =====================
-      // USER
-      // =====================
-
-      'seller.id',
-      'seller.full_name',
-      'seller.email',
-
-      'role.id',
-      'role.name_role'
-
-    ]);
-
+      .leftJoinAndSelect(
+        'user.role',
+        'role'
+      );
 
 
     const roleName =
@@ -305,17 +260,16 @@ export class WebSaleService {
 
 
 
-    // ==========================
+    // ==============================
     // PERMISOS
-    // ==========================
+    // ==============================
 
     switch (roleName) {
-
 
       case 'Vendedor Web':
 
         query.andWhere(
-          'seller.id = :userId',
+          'user.id = :userId',
           {
             userId
           }
@@ -324,13 +278,13 @@ export class WebSaleService {
         break;
 
 
-
       case 'Delivery':
 
         query.andWhere(
-          'sale.status = :status',
+          'sale.status = :deliveryStatus',
           {
-            status: WebSaleStatus.DISPATCHED
+            deliveryStatus:
+              WebSaleStatus.DISPATCHED
           }
         );
 
@@ -348,17 +302,16 @@ export class WebSaleService {
       default:
 
         throw new UnauthorizedException(
-          'No tiene permisos'
+          'No tiene permisos para consultar ventas'
         );
 
     }
 
 
 
-
-    // ==========================
+    // ==============================
     // FILTROS
-    // ==========================
+    // ==============================
 
 
     if (filters.status) {
@@ -377,10 +330,9 @@ export class WebSaleService {
     if (filters.startDate) {
 
       query.andWhere(
-        'sale.created_at >= :start',
+        'DATE(sale.created_at) >= :startDate',
         {
-          start:
-            `${filters.startDate} 00:00:00`
+          startDate: filters.startDate
         }
       );
 
@@ -391,10 +343,9 @@ export class WebSaleService {
     if (filters.endDate) {
 
       query.andWhere(
-        'sale.created_at <= :end',
+        'DATE(sale.created_at) <= :endDate',
         {
-          end:
-            `${filters.endDate} 23:59:59`
+          endDate: filters.endDate
         }
       );
 
@@ -409,101 +360,180 @@ export class WebSaleService {
 
 
 
-    const sales =
-      await query.getMany();
+    console.log(
+      query.getSql()
+    );
 
 
 
-    return sales.map(sale => ({
-
-      id: sale.id,
-
-      ticket:
-        `Ticket-${String(sale.id).padStart(6, '0')}`,
-
-      customer_name:
-        sale.customer_name,
+    const sales = await query.getMany();
 
 
-      customer_phone:
-        sale.customer_phone,
+
+    return sales.map(
+      sale => ({
 
 
-      customer_address:
-        sale.customer_address,
+        // ======================
+        // CABECERA VENTA
+        // ======================
+
+        id: sale.id,
 
 
-      total_amount:
-        sale.total_amount,
+        ticket:
+          `Ticket-${String(sale.id).padStart(6, '0')}`,
 
 
-      status:
-        sale.status,
+        customer_name:
+          sale.customer_name,
 
 
-      created_at:
-        sale.created_at,
+        customer_phone:
+          sale.customer_phone,
 
 
-      seller: {
-
-        id: sale.user?.id,
-
-        full_name:
-          sale.user?.full_name,
-
-        email:
-          sale.user?.email,
-
-        role:
-          sale.user?.role?.name_role
-
-      },
+        customer_address:
+          sale.customer_address,
 
 
-      total_products:
-        sale.details?.length || 0,
+        customer_dni:
+          sale.customer_dni,
 
 
-      details:
+        department:
+          sale.department,
 
-        sale.details.map(detail => ({
+
+        province:
+          sale.province,
+
+
+        district:
+          sale.district,
+
+
+        payment_method:
+          sale.payment_method,
+
+
+        observations:
+          sale.observations,
+
+
+        total_amount:
+          sale.total_amount,
+
+
+        status:
+          sale.status,
+
+
+        created_at:
+          sale.created_at,
+
+
+        shipping_code:
+          sale.shipping_code,
+
+
+        is_agency_delivery:
+          sale.is_agency_delivery,
+
+
+        agency_name:
+          sale.agency_name,
+
+
+
+        // ======================
+        // USUARIO
+        // ======================
+
+        seller: {
 
           id:
-            detail.id,
+            sale.user?.id,
 
 
-          product_name:
-            detail.product?.article_description,
+          full_name:
+            sale.user?.full_name,
 
 
-          article_code:
-            detail.product?.article_code,
+          email:
+            sale.user?.email,
 
 
-          image:
-            detail.product?.product_image,
+          role:
+            sale.user?.role?.name_role
+
+        },
 
 
-          size:
-            detail.size,
+
+        // ======================
+        // PRODUCTOS
+        // ======================
 
 
-          quantity:
-            detail.quantity,
+        total_products:
+          sale.details?.reduce(
+            (sum, item) =>
+              sum + Number(item.quantity),
+            0
+          ) || 0,
 
 
-          sale_price:
-            detail.sale_price,
+
+        details:
+
+          sale.details?.map(detail => ({
+
+            id:
+              detail.id,
 
 
-          subtotal:
-            detail.subtotal
-
-        }))
+            product_id:
+              detail.product_id,
 
 
-    }));
+            product_name:
+              detail.product
+                ?.article_description,
+
+
+            article_code:
+              detail.product
+                ?.article_code,
+
+
+            image:
+              detail.product
+                ?.product_image,
+
+
+            size:
+              detail.size ||
+              detail.productSize?.size,
+
+
+            quantity:
+              detail.quantity,
+
+
+            sale_price:
+              detail.sale_price,
+
+
+            subtotal:
+              detail.subtotal
+
+
+          })) || []
+
+      })
+
+    );
 
   }
 
