@@ -79,7 +79,7 @@ import { DashboardModule } from './dashCounter/dashCounter.module';
       synchronize: false,                                // true solo en desarrollo
       retryAttempts: 10,
       retryDelay: 5000,
-      connectTimeout: 30000,                             // en mysql se llama connectTimeout
+      connectTimeout: 30000,                            
       entities: [
         User,
         Product,
