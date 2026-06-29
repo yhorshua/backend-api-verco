@@ -60,6 +60,7 @@ import { SaldoFavorCliente } from './database/entities/saldoFavorCliente';
 import { AbonoDetalle } from './database/entities/abonoDetalle.entity';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { DashboardModule } from './dashCounter/dashCounter.module';
+import { WhatsappModule } from './whatsapp/whatsapp.module';
 
 @Module({
   imports: [
@@ -139,6 +140,7 @@ import { DashboardModule } from './dashCounter/dashCounter.module';
     WebSaleModule,
     EstadoCuentaModule,
     DashboardModule,
+    WhatsappModule,
   ],
   controllers: [AppController],
   providers: [AppService],
