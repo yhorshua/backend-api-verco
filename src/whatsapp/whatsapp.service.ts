@@ -6,10 +6,11 @@ export class WhatsappService {
 
   private readonly logger = new Logger(WhatsappService.name);
 
-  private readonly token = process.env.NEXT_PUBLIC_WHATSAPP_TOKEN;
+  private readonly token = process.env.WHATSAPP_TOKEN;
 
   private readonly phoneNumberId =
     process.env.WHATSAPP_PHONE_NUMBER_ID;
+
 
   async sendMessage(to: string, message: string) {
 
