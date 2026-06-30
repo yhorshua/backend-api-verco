@@ -581,6 +581,7 @@ export class StockService {
           warehouse_id: warehouseId,
           product_id: productId,
           product_size_id: productSize.id,
+          unit_of_measure: 'PAR',
           quantity,
         });
         updatedStocks.push(await this.stockRepo.save(stock));  // Guardamos el nuevo stock
