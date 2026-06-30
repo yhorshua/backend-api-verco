@@ -741,7 +741,7 @@ export class WebSaleService {
         const subtotalRegistrado = Number(detail.subtotal || 0);
 
         const precioCompraUnitario = Number(
-          detail.product?.unit_price || 0,
+          detail.product?.factory_price || 0,
         );
 
         const costoCompraTotal = precioCompraUnitario * quantity;
