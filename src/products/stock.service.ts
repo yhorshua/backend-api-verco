@@ -691,6 +691,7 @@ export class StockService {
           product_id: item.product_id,
           product_size_id: item.product_size_id,
           quantity: difference, // puede ser + o -
+          unit_of_measure: 'PAR',
           movement_type: 'ajuste',
           reference: 'Ajuste de inventario',
           user_id: userId,

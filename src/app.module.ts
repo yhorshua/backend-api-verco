@@ -77,6 +77,7 @@ import { WhatsappModule } from './whatsapp/whatsapp.module';
       username: process.env.DB_USER,
       password: process.env.DB_PASS,
       database: process.env.DB_NAME,
+      timezone: '-05:00',
       synchronize: false,                                // true solo en desarrollo
       retryAttempts: 10,
       retryDelay: 5000,
