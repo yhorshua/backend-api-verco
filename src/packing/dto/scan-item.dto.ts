@@ -1,9 +1,36 @@
-// scan-item.dto.ts
-import { IsInt, IsString } from 'class-validator';
+import {
+  IsArray,
+  IsInt,
+  IsNotEmpty,
+  IsString,
+  Min,
+  ValidateNested,
+} from 'class-validator';
+import { Type } from 'class-transformer';
 
-export class ScanItemDto {
-  @IsInt() order_id: number;
-  @IsString() codigo_producto: string;
-  @IsString() talla: string;
-  @IsInt() cantidad: number;
+class ScanItemBulkRowDto {
+  @IsString()
+  @IsNotEmpty()
+  codigo_producto!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  talla!: string;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  cantidad!: number;
+}
+
+export class ScanItemsBulkDto {
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  order_id!: number;
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ScanItemBulkRowDto)
+  items!: ScanItemBulkRowDto[];
 }

@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Param, Post } from '@nestjs/common';
 import { PackingService } from './packing.service';
-import { ScanItemDto } from './dto/scan-item.dto';
+import { ScanItemsBulkDto } from './dto/scan-item.dto';
 import { ClosePackingDto } from './dto/close-packing.dto';
 
 @Controller('packing')
@@ -18,10 +18,9 @@ export class PackingController {
   }
 
   @Post('scan')
-  scan(@Body() dto: ScanItemDto) {
-    return this.service.scanItem(dto);
-  }
-
+async scanItemsBulk(@Body() dto: ScanItemsBulkDto) {
+  return this.service.scanItemsBulk(dto);
+}
   @Post('close')
   close(@Body() dto: ClosePackingDto) {
     return this.service.closePacking(dto.order_id, dto.user_id);

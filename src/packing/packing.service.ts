@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Repository } from 'typeorm';
 
-import { ScanItemDto } from './dto/scan-item.dto';
+import { ScanItemsBulkDto } from './dto/scan-item.dto';
 import { Escaneo } from '../database/entities/escaneo.entity';
 import { OrderDetail } from '../database/entities/order-details.entity';
 import { Product } from '../database/entities/product.entity';
@@ -55,105 +55,219 @@ export class PackingService {
     return { scans, grouped: Array.from(grouped.values()) };
   }
 
-  async scanItem(dto: ScanItemDto) {
-    if (!dto.order_id) throw new BadRequestException('order_id es requerido');
-    if (!dto.codigo_producto?.trim())
+  async scanItemsBulk(dto: ScanItemsBulkDto) {
+  if (!dto.order_id) {
+    throw new BadRequestException('order_id es requerido');
+  }
+
+  if (!dto.items?.length) {
+    throw new BadRequestException('items es requerido');
+  }
+
+  const groupedMap = new Map<
+    string,
+    {
+      codigo_producto: string;
+      talla: string;
+      cantidad: number;
+    }
+  >();
+
+  for (const item of dto.items) {
+    if (!item.codigo_producto?.trim()) {
       throw new BadRequestException('codigo_producto es requerido');
-    if (!dto.talla?.trim())
+    }
+
+    if (!item.talla?.trim()) {
       throw new BadRequestException('talla es requerido');
-    if (!Number.isFinite(dto.cantidad) || dto.cantidad <= 0) {
+    }
+
+    const cantidad = Number(item.cantidad);
+
+    if (!Number.isFinite(cantidad) || cantidad <= 0) {
       throw new BadRequestException('cantidad debe ser > 0');
     }
 
-    const codigo = dto.codigo_producto.trim().toUpperCase();
-    const talla = dto.talla.trim().toUpperCase();
+    const codigo = item.codigo_producto.trim().toUpperCase();
+    const talla = item.talla.trim().toUpperCase();
 
-    return this.dataSource.transaction(async (manager) => {
-      /* ============================================================
-         1️⃣ PRODUCT CACHE
-      ============================================================ */
-      let productId = this.productCache.get(codigo);
+    const key = `${codigo}|${talla}`;
 
-      if (!productId) {
-        const product = await manager.findOne(Product, {
-          where: { article_code: codigo } as any,
-          select: ['id'] as any,
-        });
+    const prev = groupedMap.get(key);
 
-        if (!product) {
-          throw new BadRequestException(`Código no existe: ${codigo}`);
-        }
-
-        productId = product.id;
-        this.productCache.set(codigo, productId);
-      }
-
-      /* ============================================================
-         2️⃣ ORDER CACHE (🔥 SOLO SE CARGA UNA VEZ)
-      ============================================================ */
-      let orderMap = this.orderCache.get(dto.order_id);
-
-      if (!orderMap) {
-        const details = await manager.getRepository(OrderDetail).find({
-          where: { order_id: dto.order_id } as any,
-        });
-
-        if (!details.length) {
-          throw new BadRequestException('Pedido sin detalles');
-        }
-
-        orderMap = new Map();
-
-        for (const d of details) {
-          const key = `${d.product_id}|${String(d.size).toUpperCase()}`;
-          orderMap.set(key, {
-            product_id: d.product_id,
-            orderedQty: Number(d.quantity),
-          });
-        }
-
-        this.orderCache.set(dto.order_id, orderMap);
-      }
-
-      const key = `${productId}|${talla}`;
-      const line = orderMap.get(key);
-
-      if (!line) {
-        throw new BadRequestException(
-          `Producto/talla no pertenece al pedido`,
-        );
-      }
-
-      /* ============================================================
-         3️⃣ SCAN CACHE (🔥 0 QUERIES VALIDACIÓN)
-      ============================================================ */
-      const scanKey = `${dto.order_id}|${codigo}|${talla}`;
-
-      const scannedQty = this.scanCache.get(scanKey) || 0;
-      const orderedQty = line.orderedQty;
-
-      if (scannedQty + dto.cantidad > orderedQty) {
-        throw new BadRequestException(
-          `Excede lo pedido. Pedido=${orderedQty} Escaneado=${scannedQty}`,
-        );
-      }
-
-      // actualizar cache en memoria
-      this.scanCache.set(scanKey, scannedQty + dto.cantidad);
-
-      /* ============================================================
-         4️⃣ INSERT DIRECTO (ULTRA RÁPIDO)
-      ============================================================ */
-      await manager.insert(Escaneo, {
-        id_pedido: dto.order_id,
+    if (prev) {
+      prev.cantidad += cantidad;
+    } else {
+      groupedMap.set(key, {
         codigo_producto: codigo,
         talla,
-        cantidad: dto.cantidad,
+        cantidad,
       });
-
-      return { ok: true };
-    });
+    }
   }
+
+  const groupedItems = Array.from(groupedMap.values());
+
+  return this.dataSource.transaction(async (manager) => {
+    const productRepo = manager.getRepository(Product);
+    const orderDetailRepo = manager.getRepository(OrderDetail);
+    const escaneoRepo = manager.getRepository(Escaneo);
+
+    const codes = [...new Set(groupedItems.map((i) => i.codigo_producto))];
+
+    // ===============================
+    // 1. Buscar productos en una sola consulta
+    // ===============================
+    const products = await productRepo
+      .createQueryBuilder('p')
+      .select(['p.id', 'p.article_code'])
+      .where('p.article_code IN (:...codes)', { codes })
+      .getMany();
+
+    const productByCode = new Map(
+      products.map((p) => [p.article_code.trim().toUpperCase(), p]),
+    );
+
+    const missingCodes = codes.filter((code) => !productByCode.has(code));
+
+    if (missingCodes.length > 0) {
+      throw new BadRequestException(
+        `Códigos no existen: ${missingCodes.join(', ')}`,
+      );
+    }
+
+    const productIds = products.map((p) => p.id);
+
+    // ===============================
+    // 2. Traer detalles del pedido
+    // ===============================
+    const orderDetails = await orderDetailRepo
+      .createQueryBuilder('d')
+      .select([
+        'd.id',
+        'd.order_id',
+        'd.product_id',
+        'd.size',
+        'd.quantity',
+      ])
+      .where('d.order_id = :orderId', {
+        orderId: dto.order_id,
+      })
+      .andWhere('d.product_id IN (:...productIds)', {
+        productIds,
+      })
+      .getMany();
+
+    if (!orderDetails.length) {
+      throw new BadRequestException('Pedido sin detalles válidos');
+    }
+
+    const orderMap = new Map<
+      string,
+      {
+        product_id: number;
+        talla: string;
+        orderedQty: number;
+      }
+    >();
+
+    for (const d of orderDetails) {
+      const talla = String(d.size).trim().toUpperCase();
+      const key = `${d.product_id}|${talla}`;
+
+      orderMap.set(key, {
+        product_id: d.product_id,
+        talla,
+        orderedQty: Number(d.quantity || 0),
+      });
+    }
+
+    // ===============================
+    // 3. Consultar escaneos existentes
+    // ===============================
+    const scannedRows = await escaneoRepo
+      .createQueryBuilder('e')
+      .select('e.codigo_producto', 'codigo_producto')
+      .addSelect('e.talla', 'talla')
+      .addSelect('SUM(e.cantidad)', 'cantidad')
+      .where('e.id_pedido = :orderId', {
+        orderId: dto.order_id,
+      })
+      .groupBy('e.codigo_producto')
+      .addGroupBy('e.talla')
+      .getRawMany();
+
+    const scannedMap = new Map<string, number>();
+
+    for (const row of scannedRows) {
+      const codigo = String(row.codigo_producto).trim().toUpperCase();
+      const talla = String(row.talla).trim().toUpperCase();
+
+      scannedMap.set(`${codigo}|${talla}`, Number(row.cantidad || 0));
+    }
+
+    // ===============================
+    // 4. Validar lote completo
+    // ===============================
+    const inserts: Partial<Escaneo>[] = [];
+
+    for (const item of groupedItems) {
+      const product = productByCode.get(item.codigo_producto);
+
+      if (!product) {
+        throw new BadRequestException(
+          `Código no existe: ${item.codigo_producto}`,
+        );
+      }
+
+      const orderKey = `${product.id}|${item.talla}`;
+      const orderLine = orderMap.get(orderKey);
+
+      if (!orderLine) {
+        throw new BadRequestException(
+          `Producto/talla no pertenece al pedido: ${item.codigo_producto} talla ${item.talla}`,
+        );
+      }
+
+      const scanKey = `${item.codigo_producto}|${item.talla}`;
+      const scannedQty = scannedMap.get(scanKey) || 0;
+      const totalAfterScan = scannedQty + item.cantidad;
+
+      if (totalAfterScan > orderLine.orderedQty) {
+        throw new BadRequestException(
+          `Excede lo pedido: ${item.codigo_producto} talla ${item.talla}. Pedido=${orderLine.orderedQty}, Escaneado=${scannedQty}, Intentando=${item.cantidad}`,
+        );
+      }
+
+      inserts.push({
+        id_pedido: dto.order_id,
+        codigo_producto: item.codigo_producto,
+        talla: item.talla,
+        cantidad: item.cantidad,
+      });
+    }
+
+    // ===============================
+    // 5. Insert masivo
+    // ===============================
+    await escaneoRepo
+      .createQueryBuilder()
+      .insert()
+      .into(Escaneo)
+      .values(inserts)
+      .execute();
+
+    return {
+      ok: true,
+      order_id: dto.order_id,
+      inserted_rows: inserts.length,
+      total_quantity: inserts.reduce(
+        (acc, item) => acc + Number(item.cantidad || 0),
+        0,
+      ),
+    };
+  });
+}
 
   /* ============================================================
      🧹 LIMPIAR CACHE CUANDO TERMINA PACKING
