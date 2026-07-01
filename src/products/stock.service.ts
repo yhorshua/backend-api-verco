@@ -199,7 +199,7 @@ export class StockService {
       customer_id: dto.customer_id,
       total_amount,
       payment_method: dto.payment_method,
-      sale_date: now(),
+      sale_date: sale_date,
     });
 
     await manager.save(Sale, sale);
