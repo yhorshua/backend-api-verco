@@ -479,64 +479,92 @@ export class StockService {
   // Tu método existente (sin cambios)
   // =========================================================
 
-  async getProductStockByWarehouseAndArticleCode(warehouseId: number, articleCode: string) {
-    const code = (articleCode || '').trim().toUpperCase();
-    if (!code) throw new BadRequestException('articleCode es requerido');
+  async getProductStockByWarehouseAndArticleCode(
+  warehouseId: number,
+  articleCode: string,
+) {
+  const code = (articleCode || '').trim().toUpperCase();
 
-    const rows = await this.stockRepo
-      .createQueryBuilder('s')
-      .innerJoinAndSelect('s.product', 'p')
-      .leftJoinAndSelect('s.productSize', 'ps')
-      .leftJoinAndSelect('p.series', 'series')
-      .leftJoinAndSelect('p.sizes', 'sizes')
-      .where('s.warehouse_id = :warehouseId', { warehouseId })
-      .andWhere('p.status = 1')
-      .andWhere('UPPER(p.article_code) = :code', { code })
-      .orderBy('ps.size', 'ASC')
-      .getMany();
-
-    if (!rows.length) {
-      throw new NotFoundException(
-        `No hay stock para warehouse=${warehouseId} y article_code=${code}`,
-      );
-    }
-
-    const p = rows[0].product;
-
-    return {
-      product_id: p.id,
-      article_code: p.article_code,
-      article_description: p.article_description,
-      article_series: p.article_series,
-      type_origin: p.type_origin,
-      manufacturing_cost: Number(p.manufacturing_cost),
-      unit_price: Number(p.unit_price),
-      brand_name: p.brand_name,
-      model_code: p.model_code,
-      category: p.category,
-      material_type: p.material_type,
-      color: p.color,
-      stock_minimum: p.stock_minimum,
-      product_image: p.product_image,
-      status: p.status,
-      created_at: p.created_at,
-
-      series: p.series ?? null,
-      sizes: p.sizes ?? [],
-
-      stock: rows.map((s) => ({
-        stock_id: s.id,
-        warehouse_id: s.warehouse_id,
-        product_id: s.product_id,
-        product_size_id: s.product_size_id,
-        size: s.productSize?.size ?? null,
-        quantity: Number(s.quantity),
-        unit_of_measure: s.unit_of_measure,
-      })),
-
-      saldo_total: rows.reduce((acc, s) => acc + Number(s.quantity || 0), 0),
-    };
+  if (!code) {
+    throw new BadRequestException('articleCode es requerido');
   }
+
+  /**
+   * 1. Buscar producto una sola vez.
+   * OJO:
+   * Evitamos UPPER(p.article_code) para que pueda usar índice.
+   * Lo ideal es que article_code se guarde siempre en mayúsculas.
+   */
+  const product = await this.productRepo
+    .createQueryBuilder('p')
+    .leftJoinAndSelect('p.series', 'series')
+    .leftJoinAndSelect('p.category', 'category')
+    .leftJoinAndSelect('p.sizes', 'sizes')
+    .where('p.article_code COLLATE utf8mb4_general_ci = :code', { code })
+    .andWhere('p.status = :status', { status: true })
+    .getOne();
+
+  if (!product) {
+    throw new NotFoundException(`Producto con article_code=${code} no encontrado`);
+  }
+
+  /**
+   * 2. Buscar stock solo por warehouse + product_id.
+   * Esta consulta debe ser rápida con índice:
+   * Stock(warehouse_id, product_id, product_size_id)
+   */
+  const stockRows = await this.stockRepo
+    .createQueryBuilder('s')
+    .leftJoinAndSelect('s.productSize', 'ps')
+    .where('s.warehouse_id = :warehouseId', { warehouseId })
+    .andWhere('s.product_id = :productId', { productId: product.id })
+    .orderBy('CAST(ps.size AS UNSIGNED)', 'ASC')
+    .addOrderBy('ps.size', 'ASC')
+    .getMany();
+
+  if (!stockRows.length) {
+    throw new NotFoundException(
+      `No hay stock para warehouse=${warehouseId} y article_code=${code}`,
+    );
+  }
+
+  return {
+    product_id: product.id,
+    article_code: product.article_code,
+    article_description: product.article_description,
+    article_series: product.article_series,
+    type_origin: product.type_origin,
+    manufacturing_cost: Number(product.manufacturing_cost),
+    unit_price: Number(product.unit_price),
+    brand_name: product.brand_name,
+    model_code: product.model_code,
+    category: product.category,
+    material_type: product.material_type,
+    color: product.color,
+    stock_minimum: product.stock_minimum,
+    product_image: product.product_image,
+    status: product.status,
+    created_at: product.created_at,
+
+    series: product.series ?? null,
+    sizes: product.sizes ?? [],
+
+    stock: stockRows.map((s) => ({
+      stock_id: s.id,
+      warehouse_id: s.warehouse_id,
+      product_id: s.product_id,
+      product_size_id: s.product_size_id,
+      size: s.productSize?.size ?? null,
+      quantity: Number(s.quantity),
+      unit_of_measure: s.unit_of_measure,
+    })),
+
+    saldo_total: stockRows.reduce(
+      (acc, s) => acc + Number(s.quantity || 0),
+      0,
+    ),
+  };
+}
 
   async registerStockForMultipleItems(
   warehouseId: number,
