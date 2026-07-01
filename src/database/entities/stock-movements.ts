@@ -16,21 +16,21 @@ export class StockMovement {
   @PrimaryGeneratedColumn()
   id!: number;
 
-  @Column()
+  @Column({ type: 'int' })
   warehouse_id!: number;
 
   @ManyToOne(() => Warehouse, { onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'warehouse_id' })
   warehouse!: Warehouse;
 
-  @Column()
+  @Column({ type: 'int' })
   product_id!: number;
 
   @ManyToOne(() => Product, { onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'product_id' })
   product!: Product;
 
-  @Column({ nullable: true, type: 'int' })
+  @Column({ type: 'int', nullable: true })
   product_size_id!: number | null;
 
   @ManyToOne(() => ProductSize, { onDelete: 'SET NULL' })
@@ -57,7 +57,7 @@ export class StockMovement {
   @Column('decimal', { precision: 10, scale: 2, default: 0 })
   new_quantity!: number;
 
-  @Column({ length: 20 })
+  @Column({ type: 'varchar', length: 20 })
   unit_of_measure!: string;
 
   /**
@@ -68,34 +68,34 @@ export class StockMovement {
    * transferencia
    * devolucion
    */
-  @Column({ length: 20 })
+  @Column({ type: 'varchar', length: 20 })
   movement_type!: string;
 
   /**
    * ID interno del documento relacionado.
    * Ejemplo: id de guía, id de pedido, id de venta.
    */
-  @Column({ nullable: true, type: 'int' })
+  @Column({ type: 'int', nullable: true })
   reference_id!: number | null;
 
   /**
    * Tipo de documento relacionado.
    * Ejemplo: GUIA, PEDIDO, VENTA, AJUSTE
    */
-  @Column({ nullable: true, length: 30 })
+  @Column({ type: 'varchar', length: 30, nullable: true })
   reference_type!: string | null;
 
   /**
    * Número visible del documento.
-   * Ejemplo: GUIA-000123
+   * Ejemplo: GI-000123
    */
-  @Column({ nullable: true, length: 100 })
+  @Column({ type: 'varchar', length: 100, nullable: true })
   reference!: string | null;
 
   /**
    * Detalle largo del movimiento.
    */
-  @Column({ nullable: true, type: 'text' })
+  @Column({ type: 'text', nullable: true })
   notes!: string | null;
 
   @Column({ type: 'datetime', default: () => 'CURRENT_TIMESTAMP' })
@@ -104,8 +104,8 @@ export class StockMovement {
   /**
    * Usuario que registró el movimiento.
    */
-  @Column({ nullable: true })
-  user_id!: number;
+  @Column({ type: 'int', nullable: true })
+  user_id!: number | null;
 
   @ManyToOne(() => User, { onDelete: 'SET NULL' })
   @JoinColumn({ name: 'user_id' })
