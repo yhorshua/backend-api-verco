@@ -68,4 +68,13 @@ export class OrdersController {
       body.notes,
     );
   }
+
+  @Get('report/sales')
+  getSalesReport(@Query() query: any) {
+    return this.service.getSalesReport({
+      fecha_inicio: query.fecha_inicio,
+      fecha_fin: query.fecha_fin,
+      vendedor_id: query.vendedor_id ? Number(query.vendedor_id) : undefined,
+    });
+  }
 }
