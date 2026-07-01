@@ -68,6 +68,13 @@ export class WebSaleDetail {
   })
   subtotal!: number;
 
+    @Column('decimal', {
+    precision: 10,
+    scale: 2,
+    default: 0
+  })
+  purchase_price_at_sale!: number;
+
   @Column({
     type: 'varchar',
     default: DetailStatus.PENDIENTE

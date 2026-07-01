@@ -19,6 +19,7 @@ import { DeliverSaleDto } from './dto/deliverySaleDto';
 import { WebSalesReportFiltersDto } from './dto/web-sales-report.dto';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { DASHBOARD_EVENTS } from '../dashCounter/dto/dashboard-events.constants';
+import { Product } from 'src/database/entities/product.entity';
 
 @Injectable()
 export class WebSaleService {
@@ -29,6 +30,9 @@ export class WebSaleService {
 
     @InjectRepository(WebSaleDetail)
     private readonly detailRepository: Repository<WebSaleDetail>,
+
+    @InjectRepository(Product)
+    private readonly productRepository: Repository<Product>,
 
     private readonly eventEmitter: EventEmitter2,
   ) { }
@@ -59,19 +63,36 @@ export class WebSaleService {
 
     const savedSale = await this.saleRepository.save(sale);
 
-    const details = createDto.details.map(detail =>
-      this.detailRepository.create({
+    const details: WebSaleDetail[] = [];
+
+    for (const detail of createDto.details) {
+      const product = await this.productRepository.findOne({
+        where: {
+          id: detail.product_id
+        }
+      });
+
+      if (!product) {
+        throw new NotFoundException(
+          `No se encontró el producto con ID ${detail.product_id}`
+        );
+      }
+
+      const newDetail = this.detailRepository.create({
         sale: savedSale,
         product_id: detail.product_id,
         product_size_id: detail.product_size_id,
         size: detail.size,
         quantity: detail.quantity,
         sale_price: detail.sale_price,
-        subtotal: detail.subtotal
-      })
-    );
+        subtotal: detail.subtotal,
 
-    await this.detailRepository.save(details);
+        // Precio de compra histórico
+        purchase_price_at_sale: product.factory_price
+      });
+
+      details.push(newDetail);
+    }
 
     await this.detailRepository.save(details);
 

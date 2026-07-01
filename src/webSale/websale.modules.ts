@@ -7,12 +7,14 @@ import { WebSaleDetail } from '../database/entities/webDetail.entity';
 import { WebSaleController } from './websale.controller';
 
 import { WebSaleService } from './websale.service';
+import { Product } from 'src/database/entities/product.entity';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([
       WebSale,
-      WebSaleDetail
+      WebSaleDetail,
+      Product
     ])
   ],
   controllers: [WebSaleController],
