@@ -74,16 +74,16 @@ export class StockService {
       const { validated, total_amount } = await this.validateStockAndComputeTotal(manager, dto);
 
       // 3) Crear venta
-      const sale = await this.createSaleHeader(manager, dto, sale_code, total_amount, fechaLima);
+      const sale = await this.createSaleHeader(manager, dto, sale_code, total_amount);
 
       // 4) Crear detalles + movimientos + descontar stock
-      const stockMovements = await this.createDetailsAndStockOutputs(manager, dto, sale, validated, fechaLima);
+      const stockMovements = await this.createDetailsAndStockOutputs(manager, dto, sale, validated);
 
       // 5) Crear SalePayments (detalle de pago) y validar vs total real
-      const payments = await this.createSalePayments(manager, dto, sale, fechaLima);
+      const payments = await this.createSalePayments(manager, dto, sale);
 
       // 6) Crear CashMovements para arqueo (uno por cada SalePayment con amount > 0)
-      await this.createCashMovementsFromPayments(manager, sessionId, dto, sale, payments, fechaLima);
+      await this.createCashMovementsFromPayments(manager, sessionId, dto, sale, payments);
 
       return { sale, movements: stockMovements };
     });
@@ -190,7 +190,6 @@ export class StockService {
     dto: CreateSaleDto,
     sale_code: string,
     total_amount: number,
-    sale_date: Date,
   ) {
     const sale = manager.create(Sale, {
       sale_code,
@@ -199,7 +198,7 @@ export class StockService {
       customer_id: dto.customer_id,
       total_amount,
       payment_method: dto.payment_method,
-      sale_date: sale_date,
+      sale_date: new Date(),
     });
 
     await manager.save(Sale, sale);
@@ -210,8 +209,7 @@ export class StockService {
     manager: EntityManager,
     dto: CreateSaleDto,
     sale: Sale,
-    validated: Array<{ item: any; unit_price: number }>,
-    created_at: Date
+    validated: Array<{ item: any; unit_price: number }>
   ): Promise<StockMovement[]> {
     const movements: StockMovement[] = [];
 
@@ -227,7 +225,7 @@ export class StockService {
         reference: `Venta ${sale.sale_code}`,
         user_id: dto.user_id,
         movement_date: moment().tz('America/Lima').toDate(),
-        created_at: created_at,
+        created_at: new Date(),
       });
       await manager.save(StockMovement, movement);
       movements.push(movement);
@@ -239,7 +237,7 @@ export class StockService {
         product_size_id: item.product_size_id ?? null,
         quantity: item.quantity,
         unit_price,
-        sale_date: moment().tz('America/Lima').toDate(),
+        sale_date: new Date(),
         stockMovement: movement,  // Asociamos el StockMovement
       });
       await manager.save(SaleDetail, detail);
@@ -272,7 +270,6 @@ export class StockService {
     manager: EntityManager,
     dto: CreateSaleDto,
     sale: Sale,
-    created_at: Date,
   ): Promise<SalePayment[]> {
     const total = Number(sale.total_amount);
     const p: any = dto.payment || {};
@@ -301,7 +298,7 @@ export class StockService {
         cash_received: efectivoEntregado,
         cash_change: vuelto,
         notes: null,
-        created_at: created_at,
+        created_at: new Date(),
       });
 
       return payments;
@@ -322,7 +319,7 @@ export class StockService {
         cash_received: null,
         cash_change: null,
         notes: null,
-        created_at: created_at,
+        created_at: new Date(),
       });
 
       return payments;
@@ -412,7 +409,6 @@ export class StockService {
     dto: CreateSaleDto,
     sale: Sale,
     payments: SalePayment[],
-    created_at: Date,
   ) {
     for (const pay of payments) {
       // obsequio (amount 0) no entra a caja
@@ -433,7 +429,7 @@ export class StockService {
         reference_sale_payment_id: pay.id,
 
         description: `Venta ${sale.sale_code}`,
-        created_at: created_at,
+        created_at: new Date(),
       });
 
       await manager.save(CashMovement, cm);
