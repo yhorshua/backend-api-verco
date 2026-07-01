@@ -638,7 +638,7 @@ export class OrdersService {
       const subtotalRegistrado = cantidad * precioVenta;
       const costoCompraTotal = cantidad * precioCompra;
 
-      const esVendido = estadoPedido === 'ENTREGADO';
+      const esVendido = estadoPedido === 'DESPACHADO';
       const esPendiente = ['PENDIENTE', 'APROBADO', 'DESPACHADO'].includes(estadoPedido);
       const esDevuelto = estadoPedido === 'CANCELADO';
 
@@ -815,7 +815,7 @@ export class OrdersService {
 
     const ventaMapeada = {
       sale_id: order.id,
-      ticket: `Ticket-${String(order.id).padStart(6, '0')}`,
+      ticket: `GUIA-${String(order.id).padStart(6, '0')}`,
       fecha_registro: order.request_date,
       estado_pedido: estadoPedido,
 
