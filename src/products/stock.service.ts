@@ -15,7 +15,7 @@ import { CashMovement } from '../database/entities/cash-movement.entity';
 import { CreateSaleDto, PaymentMethod } from './dto/create-sale.dto';
 import { ProductSize } from 'src/database/entities/product-size.entity';
 import { Product } from 'src/database/entities/product.entity';
-import moment from 'moment-timezone';
+import moment, { now } from 'moment-timezone';
 import { UpdateProductDto } from './dto/create-product.dto';
 
 @Injectable()
@@ -199,7 +199,7 @@ export class StockService {
       customer_id: dto.customer_id,
       total_amount,
       payment_method: dto.payment_method,
-      sale_date: sale_date,
+      sale_date: now(),
     });
 
     await manager.save(Sale, sale);

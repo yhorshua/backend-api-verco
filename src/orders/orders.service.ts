@@ -529,6 +529,470 @@ export class OrdersService {
     return { ok: true };
   }
 
+  async getSalesReport(dto: {
+  fecha_inicio?: string;
+  fecha_fin?: string;
+  vendedor_id?: number;
+}) {
+  const qb = this.orderRepo
+    .createQueryBuilder('o')
+    .leftJoinAndSelect('o.user', 'u')
+    .leftJoinAndSelect('o.client', 'c')
+    .leftJoinAndSelect('o.details', 'd')
+    .leftJoinAndSelect('d.product', 'p')
+    .where('1 = 1');
+
+  if (dto.fecha_inicio) {
+    qb.andWhere('DATE(o.request_date) >= :fecha_inicio', {
+      fecha_inicio: dto.fecha_inicio,
+    });
+  }
+
+  if (dto.fecha_fin) {
+    qb.andWhere('DATE(o.request_date) <= :fecha_fin', {
+      fecha_fin: dto.fecha_fin,
+    });
+  }
+
+  if (dto.vendedor_id) {
+    qb.andWhere('o.user_id = :vendedor_id', {
+      vendedor_id: dto.vendedor_id,
+    });
+  }
+
+  qb.orderBy('o.request_date', 'DESC');
+
+  const orders = await qb.getMany();
+
+  const resumenGeneral = {
+    total_pedidos: 0,
+    pedidos_pendientes: 0,
+    pedidos_aprobados: 0,
+    pedidos_despachados: 0,
+    pedidos_entregados: 0,
+    pedidos_cancelados: 0,
+
+    total_importe_registrado: 0,
+    total_importe_vendido: 0,
+    total_importe_pendiente: 0,
+    total_importe_devuelto: 0,
+
+    total_costo_compra: 0,
+    total_utilidad: 0,
+    margen_utilidad_porcentaje: 0,
+
+    total_pares_registrados: 0,
+    total_pares_vendidos: 0,
+    total_pares_pendientes: 0,
+    total_pares_devueltos: 0,
+  };
+
+  const vendedoresMap = new Map<number, any>();
+  const productosMap = new Map<number, any>();
+  const tallasMap = new Map<string, any>();
+
+ const detalleVentas: any[] = [];
+
+  const getEstadoPedido = (statusId: number) => {
+    switch (statusId) {
+      case OrderStatusEnum.PENDIENTE:
+        return 'PENDIENTE';
+      case OrderStatusEnum.APROBADO:
+        return 'APROBADO';
+      case OrderStatusEnum.DESPACHADO:
+        return 'DESPACHADO';
+      case OrderStatusEnum.CERRADO:
+        return 'ENTREGADO';
+      case OrderStatusEnum.RECHAZADO:
+        return 'CANCELADO';
+      default:
+        return 'OTRO';
+    }
+  };
+
+  for (const order of orders) {
+    const estadoPedido = getEstadoPedido(order.order_status_id);
+
+    let totalImporteRegistrado = 0;
+    let totalImporteVendido = 0;
+    let totalImportePendiente = 0;
+    let totalImporteDevuelto = 0;
+
+    let totalCostoCompra = 0;
+    let totalUtilidad = 0;
+
+    let totalParesRegistrados = 0;
+    let totalParesVendidos = 0;
+    let totalParesPendientes = 0;
+    let totalParesDevueltos = 0;
+
+    const detalles: any[] = [];
+
+    for (const d of order.details || []) {
+      const cantidad = Number(d.quantity || 0);
+      const precioVenta = Number(d.unit_price || 0);
+
+  
+      const precioCompra = Number(d.product?.factory_price || 0);
+
+      const subtotalRegistrado = cantidad * precioVenta;
+      const costoCompraTotal = cantidad * precioCompra;
+
+      const esVendido = estadoPedido === 'ENTREGADO';
+      const esPendiente = ['PENDIENTE', 'APROBADO', 'DESPACHADO'].includes(estadoPedido);
+      const esDevuelto = estadoPedido === 'CANCELADO';
+
+      const importeFinal = esVendido ? subtotalRegistrado : 0;
+      const utilidad = esVendido ? importeFinal - costoCompraTotal : 0;
+
+      totalImporteRegistrado += subtotalRegistrado;
+      totalParesRegistrados += cantidad;
+
+      if (esVendido) {
+        totalImporteVendido += subtotalRegistrado;
+        totalCostoCompra += costoCompraTotal;
+        totalUtilidad += utilidad;
+        totalParesVendidos += cantidad;
+      }
+
+      if (esPendiente) {
+        totalImportePendiente += subtotalRegistrado;
+        totalParesPendientes += cantidad;
+      }
+
+      if (esDevuelto) {
+        totalImporteDevuelto += subtotalRegistrado;
+        totalParesDevueltos += cantidad;
+      }
+
+      const detalle = {
+        detalle_id: d.id,
+        estado_detalle: esDevuelto ? 'DEVUELTO' : esVendido ? 'VENDIDO' : 'PENDIENTE',
+
+        product_id: d.product_id,
+        product_size_id: d.product_size_id,
+
+        article_code: d.product?.article_code ?? '',
+        article_description: d.product?.article_description ?? '',
+        brand_name: (d.product as any)?.brand_name ?? '',
+        model_code: (d.product as any)?.model_code ?? '',
+        color: (d.product as any)?.color ?? '',
+
+        talla: d.size,
+        cantidad_pares: cantidad,
+
+        precio_compra_unitario: precioCompra,
+        precio_venta_unitario: precioVenta,
+
+        subtotal_registrado: subtotalRegistrado,
+        importe_final: importeFinal,
+        costo_compra_total: esVendido ? costoCompraTotal : 0,
+        utilidad,
+        margen_utilidad_porcentaje:
+          importeFinal > 0 ? Number(((utilidad / importeFinal) * 100).toFixed(2)) : 0,
+
+        vendido: esVendido,
+        pendiente: esPendiente,
+        devuelto: esDevuelto,
+      };
+
+      detalles.push(detalle);
+
+      // ========================
+      // AGRUPADO POR PRODUCTO
+      // ========================
+      if (!productosMap.has(d.product_id)) {
+        productosMap.set(d.product_id, {
+          product_id: d.product_id,
+          article_code: d.product?.article_code ?? '',
+          article_description: d.product?.article_description ?? '',
+          brand_name: (d.product as any)?.brand_name ?? '',
+          model_code: (d.product as any)?.model_code ?? '',
+          color: (d.product as any)?.color ?? '',
+
+          precio_compra_unitario: precioCompra,
+          precio_venta_promedio: 0,
+
+          total_pares_registrados: 0,
+          total_pares_vendidos: 0,
+          total_pares_pendientes: 0,
+          total_pares_devueltos: 0,
+
+          total_importe_vendido: 0,
+          total_costo_compra: 0,
+          total_utilidad: 0,
+          margen_utilidad_porcentaje: 0,
+
+          tallas: [],
+          _sumaPrecioVenta: 0,
+          _cantidadVentas: 0,
+        });
+      }
+
+      const productoAgg = productosMap.get(d.product_id);
+
+      productoAgg.total_pares_registrados += cantidad;
+      productoAgg.total_pares_vendidos += esVendido ? cantidad : 0;
+      productoAgg.total_pares_pendientes += esPendiente ? cantidad : 0;
+      productoAgg.total_pares_devueltos += esDevuelto ? cantidad : 0;
+      productoAgg.total_importe_vendido += importeFinal;
+      productoAgg.total_costo_compra += esVendido ? costoCompraTotal : 0;
+      productoAgg.total_utilidad += utilidad;
+
+      if (esVendido) {
+        productoAgg._sumaPrecioVenta += precioVenta;
+        productoAgg._cantidadVentas += 1;
+      }
+
+      let tallaAgg = productoAgg.tallas.find((t) => t.talla === d.size);
+
+      if (!tallaAgg) {
+        tallaAgg = {
+          talla: d.size,
+          total_pares_registrados: 0,
+          total_pares_vendidos: 0,
+          total_pares_pendientes: 0,
+          total_pares_devueltos: 0,
+          total_importe_vendido: 0,
+          total_utilidad: 0,
+        };
+
+        productoAgg.tallas.push(tallaAgg);
+      }
+
+      tallaAgg.total_pares_registrados += cantidad;
+      tallaAgg.total_pares_vendidos += esVendido ? cantidad : 0;
+      tallaAgg.total_pares_pendientes += esPendiente ? cantidad : 0;
+      tallaAgg.total_pares_devueltos += esDevuelto ? cantidad : 0;
+      tallaAgg.total_importe_vendido += importeFinal;
+      tallaAgg.total_utilidad += utilidad;
+
+      // ========================
+      // AGRUPADO GLOBAL POR TALLA
+      // ========================
+      const tallaKey = String(d.size ?? 'SIN TALLA');
+
+      if (!tallasMap.has(tallaKey)) {
+        tallasMap.set(tallaKey, {
+          talla: tallaKey,
+          total_pares_registrados: 0,
+          total_pares_vendidos: 0,
+          total_pares_pendientes: 0,
+          total_pares_devueltos: 0,
+          total_importe_vendido: 0,
+          total_utilidad: 0,
+        });
+      }
+
+      const tallaGlobal = tallasMap.get(tallaKey);
+
+      tallaGlobal.total_pares_registrados += cantidad;
+      tallaGlobal.total_pares_vendidos += esVendido ? cantidad : 0;
+      tallaGlobal.total_pares_pendientes += esPendiente ? cantidad : 0;
+      tallaGlobal.total_pares_devueltos += esDevuelto ? cantidad : 0;
+      tallaGlobal.total_importe_vendido += importeFinal;
+      tallaGlobal.total_utilidad += utilidad;
+    }
+
+    const resumenVenta = {
+      total_importe_registrado: totalImporteRegistrado,
+      total_importe_vendido: totalImporteVendido,
+      total_importe_pendiente: totalImportePendiente,
+      total_importe_devuelto: totalImporteDevuelto,
+
+      total_costo_compra: totalCostoCompra,
+      total_utilidad: totalUtilidad,
+      margen_utilidad_porcentaje:
+        totalImporteVendido > 0
+          ? Number(((totalUtilidad / totalImporteVendido) * 100).toFixed(2))
+          : 0,
+
+      total_pares_registrados: totalParesRegistrados,
+      total_pares_vendidos: totalParesVendidos,
+      total_pares_pendientes: totalParesPendientes,
+      total_pares_devueltos: totalParesDevueltos,
+    };
+
+    const ventaMapeada = {
+      sale_id: order.id,
+      ticket: `Ticket-${String(order.id).padStart(6, '0')}`,
+      fecha_registro: order.request_date,
+      estado_pedido: estadoPedido,
+
+      cliente: {
+        nombre: order.customer_name ?? order.client?.business_name ?? '',
+        dni: order.client?.document_number ?? '',
+        telefono: order.customer_phone ?? '',
+        direccion: order.customer_address ?? order.client?.address ?? '',
+        departamento: '',
+        provincia: '',
+        distrito: '',
+        referencia: order.customer_reference ?? '',
+      },
+
+      vendedor: {
+        id: order.user?.id,
+        nombre: order.user?.full_name ?? '',
+        email: order.user?.email ?? '',
+        rol: (order.user as any)?.role?.name ?? '',
+      },
+
+      pago: {
+        metodo_pago: order.payment_method ?? '',
+        total_pedido_actual: totalImporteVendido,
+        estado_pago: order.payment_status,
+        referencia_pago: order.payment_reference,
+      },
+
+      envio: {
+        es_agencia: false,
+        agencia: null,
+        codigo_envio: null,
+      },
+
+      resumen_venta: resumenVenta,
+      detalles,
+    };
+
+    detalleVentas.push(ventaMapeada);
+
+    // ========================
+    // RESUMEN GENERAL
+    // ========================
+    resumenGeneral.total_pedidos += 1;
+
+    if (estadoPedido === 'PENDIENTE') resumenGeneral.pedidos_pendientes += 1;
+    if (estadoPedido === 'APROBADO') resumenGeneral.pedidos_aprobados += 1;
+    if (estadoPedido === 'DESPACHADO') resumenGeneral.pedidos_despachados += 1;
+    if (estadoPedido === 'ENTREGADO') resumenGeneral.pedidos_entregados += 1;
+    if (estadoPedido === 'CANCELADO') resumenGeneral.pedidos_cancelados += 1;
+
+    resumenGeneral.total_importe_registrado += totalImporteRegistrado;
+    resumenGeneral.total_importe_vendido += totalImporteVendido;
+    resumenGeneral.total_importe_pendiente += totalImportePendiente;
+    resumenGeneral.total_importe_devuelto += totalImporteDevuelto;
+
+    resumenGeneral.total_costo_compra += totalCostoCompra;
+    resumenGeneral.total_utilidad += totalUtilidad;
+
+    resumenGeneral.total_pares_registrados += totalParesRegistrados;
+    resumenGeneral.total_pares_vendidos += totalParesVendidos;
+    resumenGeneral.total_pares_pendientes += totalParesPendientes;
+    resumenGeneral.total_pares_devueltos += totalParesDevueltos;
+
+    // ========================
+    // RESUMEN POR VENDEDOR
+    // ========================
+    const vendedorId = order.user?.id ?? 0;
+
+    if (!vendedoresMap.has(vendedorId)) {
+      vendedoresMap.set(vendedorId, {
+        vendedor_id: vendedorId,
+        vendedor: order.user?.full_name ?? '',
+        email: order.user?.email ?? '',
+        rol: (order.user as any)?.role?.name ?? '',
+
+        total_pedidos: 0,
+        pedidos_pendientes: 0,
+        pedidos_aprobados: 0,
+        pedidos_despachados: 0,
+        pedidos_entregados: 0,
+        pedidos_cancelados: 0,
+
+        total_importe_registrado: 0,
+        total_importe_vendido: 0,
+        total_importe_pendiente: 0,
+        total_importe_devuelto: 0,
+
+        total_costo_compra: 0,
+        total_utilidad: 0,
+
+        total_pares_registrados: 0,
+        total_pares_vendidos: 0,
+        total_pares_pendientes: 0,
+        total_pares_devueltos: 0,
+
+        margen_utilidad_porcentaje: 0,
+        ventas: [],
+      });
+    }
+
+    const vendedorAgg = vendedoresMap.get(vendedorId);
+
+    vendedorAgg.total_pedidos += 1;
+    if (estadoPedido === 'PENDIENTE') vendedorAgg.pedidos_pendientes += 1;
+    if (estadoPedido === 'APROBADO') vendedorAgg.pedidos_aprobados += 1;
+    if (estadoPedido === 'DESPACHADO') vendedorAgg.pedidos_despachados += 1;
+    if (estadoPedido === 'ENTREGADO') vendedorAgg.pedidos_entregados += 1;
+    if (estadoPedido === 'CANCELADO') vendedorAgg.pedidos_cancelados += 1;
+
+    vendedorAgg.total_importe_registrado += totalImporteRegistrado;
+    vendedorAgg.total_importe_vendido += totalImporteVendido;
+    vendedorAgg.total_importe_pendiente += totalImportePendiente;
+    vendedorAgg.total_importe_devuelto += totalImporteDevuelto;
+
+    vendedorAgg.total_costo_compra += totalCostoCompra;
+    vendedorAgg.total_utilidad += totalUtilidad;
+
+    vendedorAgg.total_pares_registrados += totalParesRegistrados;
+    vendedorAgg.total_pares_vendidos += totalParesVendidos;
+    vendedorAgg.total_pares_pendientes += totalParesPendientes;
+    vendedorAgg.total_pares_devueltos += totalParesDevueltos;
+
+    vendedorAgg.ventas.push(ventaMapeada);
+  }
+
+  resumenGeneral.margen_utilidad_porcentaje =
+    resumenGeneral.total_importe_vendido > 0
+      ? Number(
+          (
+            (resumenGeneral.total_utilidad /
+              resumenGeneral.total_importe_vendido) *
+            100
+          ).toFixed(2),
+        )
+      : 0;
+
+  const resumenPorVendedor = Array.from(vendedoresMap.values()).map((v) => ({
+    ...v,
+    margen_utilidad_porcentaje:
+      v.total_importe_vendido > 0
+        ? Number(((v.total_utilidad / v.total_importe_vendido) * 100).toFixed(2))
+        : 0,
+  }));
+
+  const resumenPorProducto = Array.from(productosMap.values()).map((p) => {
+    p.precio_venta_promedio =
+      p._cantidadVentas > 0
+        ? Number((p._sumaPrecioVenta / p._cantidadVentas).toFixed(2))
+        : 0;
+
+    p.margen_utilidad_porcentaje =
+      p.total_importe_vendido > 0
+        ? Number(((p.total_utilidad / p.total_importe_vendido) * 100).toFixed(2))
+        : 0;
+
+    delete p._sumaPrecioVenta;
+    delete p._cantidadVentas;
+
+    return p;
+  });
+
+  return {
+    filtros: {
+      fecha_inicio: dto.fecha_inicio ?? null,
+      fecha_fin: dto.fecha_fin ?? null,
+      vendedor_id: dto.vendedor_id ?? null,
+    },
+
+    resumen_general: resumenGeneral,
+    resumen_por_vendedor: resumenPorVendedor,
+    resumen_por_producto: resumenPorProducto,
+    resumen_por_talla: Array.from(tallasMap.values()),
+    detalle_ventas: detalleVentas,
+  };
+}
+
 }
 
 
