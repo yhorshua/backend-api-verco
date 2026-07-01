@@ -539,31 +539,59 @@ export class StockService {
   }
 
   async registerStockForMultipleItems(
-    warehouseId: number,
-    products: { productId: number; productSizeId: number; quantity: number }[]
-  ): Promise<Stock[]> {
+  warehouseId: number,
+  products: {
+    productId: number;
+    productSizeId: number;
+    quantity: number;
+  }[],
+  userId: number,
+  guideId?: number,
+  guideNumber?: string,
+): Promise<Stock[]> {
+  return this.dataSource.transaction(async (manager) => {
+    const stockRepo = manager.getRepository(Stock);
+    const productRepo = manager.getRepository(Product);
+    const productSizeRepo = manager.getRepository(ProductSize);
+    const stockMovementRepo = manager.getRepository(StockMovement);
+
     const updatedStocks: Stock[] = [];
 
-    // Iteramos sobre cada producto
     for (const item of products) {
       const { productId, productSizeId, quantity } = item;
 
-      // Verificamos si el producto existe
-      const product = await this.productRepo.findOne({ where: { id: productId } });
-      if (!product) {
-        throw new NotFoundException(`Producto con ID ${productId} no encontrado`);
+      if (quantity <= 0) {
+        throw new BadRequestException('La cantidad debe ser mayor a 0');
       }
 
-      // Verificamos si la talla existe usando el productSizeId
-      const productSize = await this.productSizeRepo.findOne({
-        where: { id: productSizeId, product: { id: productId } }, // Buscamos la talla para el producto específico
+      const product = await productRepo.findOne({
+        where: {
+          id: productId,
+        },
       });
-      if (!productSize) {
-        throw new NotFoundException(`Talla con ID ${productSizeId} no encontrada para el producto ${productId}`);
+
+      if (!product) {
+        throw new NotFoundException(
+          `Producto con ID ${productId} no encontrado`,
+        );
       }
 
-      // Verificamos si ya existe stock para ese producto y talla en el almacén
-      let stock = await this.stockRepo.findOne({
+      const productSize = await productSizeRepo.findOne({
+        where: {
+          id: productSizeId,
+          product: {
+            id: productId,
+          },
+        },
+      });
+
+      if (!productSize) {
+        throw new NotFoundException(
+          `Talla con ID ${productSizeId} no encontrada para el producto ${productId}`,
+        );
+      }
+
+      let stock = await stockRepo.findOne({
         where: {
           warehouse_id: warehouseId,
           product_id: productId,
@@ -571,25 +599,53 @@ export class StockService {
         },
       });
 
+      const previousQuantity = stock ? Number(stock.quantity) : 0;
+      const newQuantity = previousQuantity + Number(quantity);
+
       if (stock) {
-        // Si el stock ya existe, sumamos la cantidad
-        stock.quantity += quantity;
-        updatedStocks.push(await this.stockRepo.save(stock));  // Guardamos el stock actualizado
+        stock.quantity = newQuantity;
+        stock = await stockRepo.save(stock);
       } else {
-        // Si el stock no existe, lo creamos
-        stock = this.stockRepo.create({
+        stock = stockRepo.create({
           warehouse_id: warehouseId,
           product_id: productId,
           product_size_id: productSize.id,
           unit_of_measure: 'PAR',
-          quantity,
+          quantity: newQuantity,
         });
-        updatedStocks.push(await this.stockRepo.save(stock));  // Guardamos el nuevo stock
+
+        stock = await stockRepo.save(stock);
       }
+
+      await stockMovementRepo.save({
+        warehouse_id: warehouseId,
+        product_id: productId,
+        product_size_id: productSize.id,
+
+        quantity: Number(quantity),
+        previous_quantity: previousQuantity,
+        new_quantity: newQuantity,
+
+        unit_of_measure: 'PAR',
+        movement_type: 'entrada',
+
+        reference_id: guideId ?? null,
+        reference_type: guideId || guideNumber ? 'GUIA' : null,
+        reference: guideNumber ?? null,
+
+        notes: `Ingreso de stock por guía ${
+          guideNumber ?? guideId ?? 'SIN GUÍA'
+        }. Stock anterior: ${previousQuantity}. Cantidad ingresada: ${quantity}. Stock nuevo: ${newQuantity}.`,
+
+        user_id: userId,
+      });
+
+      updatedStocks.push(stock);
     }
 
     return updatedStocks;
-  }
+  });
+}
 
   async getInventoryByWarehouseAndCategory(
     warehouseId: number,

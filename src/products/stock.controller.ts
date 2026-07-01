@@ -1,21 +1,45 @@
-import { Controller, Get, Post, Body, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, UseGuards, Req } from '@nestjs/common';
 import { StockService } from './stock.service';
 import { CreateMovementDto } from './dto/create-movement.dto';
 import { CreateSaleDto } from './dto/create-sale.dto';
 import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
 
+type RegisterStockMultipleDto = {
+  warehouseId: number;
+  guideId?: number;
+  guideNumber?: string;
+  products: {
+    productId: number;
+    productSizeId: number;
+    quantity: number;
+  }[];
+};
+
 @Controller('stock')
 export class StockController {
   constructor(private readonly stockService: StockService) { }
 
-  @UseGuards(JwtAuthGuard)
-  @Post('register-multiple')
-  async registerStockForMultipleItems(
-    @Body() stockDto: { warehouseId: number; products: { productId: number; productSizeId: number; quantity: number }[] }
-  ) {
-    const { warehouseId, products } = stockDto;
-    return await this.stockService.registerStockForMultipleItems(warehouseId, products);
-  }
+@UseGuards(JwtAuthGuard)
+@Post('register-multiple')
+async registerStockForMultipleItems(
+  @Body() stockDto: RegisterStockMultipleDto,
+  @Req() req: any,
+) {
+  const { warehouseId, products, guideId, guideNumber } = stockDto;
+
+  const userId =
+      req.user?.userId ||
+      req.user?.id ||
+      req.user?.sub;
+
+  return await this.stockService.registerStockForMultipleItems(
+    Number(warehouseId),
+    products,
+    userId,
+    guideId ? Number(guideId) : undefined,
+    guideNumber,
+  );
+}
 
   @UseGuards(JwtAuthGuard)
   @Get('by-warehouse/:warehouseId/article/:articleCode')
