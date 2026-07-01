@@ -60,7 +60,7 @@ export class StockService {
 
     return this.dataSource.transaction(async (manager) => {
 
-      const fechaLima = moment().tz('America/Lima').toDate();
+      const fechaLima = moment().tz('America/Lima').format('YYYY-MM-DD HH:mm:ss');
       // 0) Validar warehouse tipo "tienda"
       await this.assertWarehouseIsStore(manager, dto.warehouse_id);
 
