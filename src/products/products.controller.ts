@@ -5,6 +5,7 @@ import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { UpdateProductPricesDto } from './dto/update-product-prices.dto';
 
 @Controller('products')
 export class ProductsController {
@@ -67,15 +68,6 @@ export class ProductsController {
     return this.productsService.disable(+id);
   }
 
-  @UseGuards(JwtAuthGuard)
-  @Patch(':id')
-  async updateProduct(
-    @Param('id') id: string,
-    @Body() updateProductDto: UpdateProductDto
-  ) {
-    return await this.productsService.update(+id, updateProductDto);
-  }
-
 
   @Post('import-stock')
   @UseGuards(JwtAuthGuard)
@@ -97,5 +89,18 @@ export class ProductsController {
     return this.productsService.importStockExcel(warehouseId, file);
   }
 
+  @UseGuards(JwtAuthGuard)
+  @Get('verco-zapatillas')
+  async getVercoZapatillas() {
+    return await this.productsService.findVercoZapatillas();
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch('prices/bulk')
+  async updateManyProductPrices(
+    @Body() dto: UpdateProductPricesDto,
+  ) {
+    return await this.productsService.updateManyProductPrices(dto);
+  }
 
 }

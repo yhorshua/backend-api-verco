@@ -9,7 +9,7 @@ import { UpdateProductDto } from './dto/update-product.dto';
 import { Series } from 'src/database/entities/series.entity';
 import { Category } from 'src/database/entities/categories.entity';
 import * as XLSX from 'xlsx';
-import { Express } from 'express';
+import { UpdateProductPriceItemDto, UpdateProductPricesDto } from './dto/update-product-prices.dto';
 
 @Injectable()
 export class ProductsService {
@@ -632,6 +632,161 @@ export class ProductsService {
       },
     );
   }
+
+  async findVercoZapatillas(): Promise<any[]> {
+    const products = await this.productRepo
+      .createQueryBuilder('product')
+      .leftJoinAndSelect('product.sizes', 'sizes')
+      .leftJoinAndSelect('product.series', 'series')
+      .leftJoinAndSelect('product.category', 'category')
+      .where('LOWER(product.brand_name) = LOWER(:brand)', {
+        brand: 'VERCO',
+      })
+      .andWhere('LOWER(category.name) = LOWER(:categoryName)', {
+        categoryName: 'ZAPATILLAS',
+      })
+      .andWhere('product.status = :status', {
+        status: true,
+      })
+      .orderBy('product.article_code', 'ASC')
+      .getMany();
+
+    return products.map((product) => ({
+      id: product.id,
+      article_code: product.article_code,
+      article_description: product.article_description,
+      article_series: product.article_series,
+
+      brand_name: product.brand_name,
+      model_code: product.model_code,
+      material_type: product.material_type,
+      color: product.color,
+
+      category: {
+        id: product.category?.id,
+        name: product.category?.name,
+      },
+
+      series: {
+        code: product.series?.code,
+        name: product.series?.description_serie,
+      },
+
+      prices: {
+        manufacturing_cost: Number(product.manufacturing_cost ?? 0),
+        unit_price: Number(product.unit_price ?? 0),
+        factory_price: Number(product.factory_price ?? 0),
+        dropshipping_price: Number(product.dropshipping_price ?? 0),
+        wholesale_price: Number(product.wholesale_price ?? 0),
+      },
+
+      sizes: product.sizes?.map((size) => ({
+        id: size.id,
+        size: size.size,
+        lot_pair: size.lot_pair,
+      })),
+    }));
+  }
+
+  async updateManyProductPrices(dto: UpdateProductPricesDto) {
+    if (!dto.products || dto.products.length === 0) {
+      throw new BadRequestException('Debe enviar al menos un producto');
+    }
+
+    const allowedPriceFields: Array<keyof UpdateProductPriceItemDto> = [
+      'manufacturing_cost',
+      'unit_price',
+      'factory_price',
+      'dropshipping_price',
+      'wholesale_price',
+    ];
+
+    return await this.productRepo.manager.transaction(async (manager) => {
+      const updatedProducts: any[] = [];
+      const productsNotFound: number[] = [];
+
+      for (const item of dto.products) {
+        const product = await manager.findOne(Product, {
+          where: {
+            id: item.id,
+          },
+          relations: ['category'],
+        });
+
+        if (!product) {
+          productsNotFound.push(item.id);
+          continue;
+        }
+
+        // Seguridad: solo permitir actualizar productos VERCO + ZAPATILLAS
+        const isVerco =
+          String(product.brand_name ?? '').toUpperCase() === 'VERCO';
+
+        const isZapatillas =
+          String(product.category?.name ?? '').toUpperCase() === 'ZAPATILLAS';
+
+        if (!isVerco || !isZapatillas) {
+          throw new BadRequestException(
+            `El producto ID ${item.id} no pertenece a marca VERCO y categoría ZAPATILLAS`,
+          );
+        }
+
+        let hasChanges = false;
+
+        for (const field of allowedPriceFields) {
+          const value = item[field];
+
+          // Si el campo no viene, NO se actualiza
+          if (value === undefined || value === null) {
+            continue;
+          }
+
+          const numericValue = Number(value);
+
+          if (Number.isNaN(numericValue)) {
+            throw new BadRequestException(
+              `El campo ${field} del producto ID ${item.id} no es válido`,
+            );
+          }
+
+          if (numericValue < 0) {
+            throw new BadRequestException(
+              `El campo ${field} del producto ID ${item.id} no puede ser negativo`,
+            );
+          }
+
+          (product as any)[field] = numericValue;
+          hasChanges = true;
+        }
+
+        if (hasChanges) {
+          const savedProduct = await manager.save(Product, product);
+
+          updatedProducts.push({
+            id: savedProduct.id,
+            article_code: savedProduct.article_code,
+            article_description: savedProduct.article_description,
+            brand_name: savedProduct.brand_name,
+            category: product.category?.name,
+            prices: {
+              manufacturing_cost: Number(savedProduct.manufacturing_cost ?? 0),
+              unit_price: Number(savedProduct.unit_price ?? 0),
+              factory_price: Number(savedProduct.factory_price ?? 0),
+              dropshipping_price: Number(savedProduct.dropshipping_price ?? 0),
+              wholesale_price: Number(savedProduct.wholesale_price ?? 0),
+            },
+          });
+        }
+      }
+
+      return {
+        message: 'Precios actualizados correctamente',
+        totalReceived: dto.products.length,
+        totalUpdated: updatedProducts.length,
+        productsNotFound,
+        updatedProducts,
+      };
+    });
+  }
+
 }
-
-
