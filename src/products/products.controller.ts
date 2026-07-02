@@ -39,6 +39,12 @@ export class ProductsController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Get('verco-zapatillas')
+  async getVercoZapatillas() {
+    return await this.productsService.findVercoZapatillas();
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.productsService.findOne(+id);
@@ -89,11 +95,6 @@ export class ProductsController {
     return this.productsService.importStockExcel(warehouseId, file);
   }
 
-  @UseGuards(JwtAuthGuard)
-  @Get('verco-zapatillas')
-  async getVercoZapatillas() {
-    return await this.productsService.findVercoZapatillas();
-  }
 
   @UseGuards(JwtAuthGuard)
   @Patch('prices/bulk')
