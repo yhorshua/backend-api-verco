@@ -138,7 +138,10 @@ export class StockService {
     return Number(rows[0].id);
   }
 
-  private async validateStockAndComputeTotal(manager: EntityManager, dto: CreateSaleDto) {
+  private async validateStockAndComputeTotal(
+    manager: EntityManager,
+    dto: CreateSaleDto,
+  ) {
     let total_amount = 0;
 
     const validated: Array<{
@@ -149,6 +152,7 @@ export class StockService {
         unit_of_measure: string;
       };
       unit_price: number;
+      factory_price_at_sale: number;
     }> = [];
 
     for (const item of dto.items) {
@@ -169,6 +173,12 @@ export class StockService {
         );
       }
 
+      if (!stock.product) {
+        throw new NotFoundException(
+          `Producto no encontrado para product_id=${item.product_id}`,
+        );
+      }
+
       if (Number(stock.quantity) < Number(item.quantity)) {
         throw new NotFoundException(
           `Stock insuficiente: product_id=${item.product_id}, size=${item.product_size_id ?? 'N/A'} (disp=${stock.quantity}, req=${item.quantity})`,
@@ -176,13 +186,23 @@ export class StockService {
       }
 
       const unit_price = Number(item.unit_price);
+      const factory_price_at_sale = Number(stock.product.factory_price ?? 0);
+
       total_amount += Number(item.quantity) * unit_price;
 
-      validated.push({ item, unit_price });
+      validated.push({
+        item,
+        unit_price,
+        factory_price_at_sale,
+      });
     }
 
     total_amount = Number(total_amount.toFixed(2));
-    return { validated, total_amount };
+
+    return {
+      validated,
+      total_amount,
+    };
   }
 
   private async createSaleHeader(
@@ -205,58 +225,69 @@ export class StockService {
     return sale;
   }
 
-  private async createDetailsAndStockOutputs(
-    manager: EntityManager,
-    dto: CreateSaleDto,
-    sale: Sale,
-    validated: Array<{ item: any; unit_price: number }>
-  ): Promise<StockMovement[]> {
-    const movements: StockMovement[] = [];
+ private async createDetailsAndStockOutputs(
+  manager: EntityManager,
+  dto: CreateSaleDto,
+  sale: Sale,
+  validated: Array<{
+    item: any;
+    unit_price: number;
+    factory_price_at_sale: number;
+  }>,
+): Promise<StockMovement[]> {
+  const movements: StockMovement[] = [];
 
-    for (const { item, unit_price } of validated) {
-      // Crear el movimiento de stock primero
-      const movement = manager.create(StockMovement, {
+  for (const {
+    item,
+    unit_price,
+    factory_price_at_sale,
+  } of validated) {
+    const movement = manager.create(StockMovement, {
+      warehouse_id: dto.warehouse_id,
+      product_id: item.product_id,
+      product_size_id: item.product_size_id ?? null,
+      quantity: -Math.abs(Number(item.quantity)),
+      unit_of_measure: item.unit_of_measure,
+      movement_type: 'salida',
+      reference: `Venta ${sale.sale_code}`,
+      user_id: dto.user_id,
+      movement_date: moment().tz('America/Lima').toDate(),
+      created_at: new Date(),
+    });
+
+    await manager.save(StockMovement, movement);
+
+    movements.push(movement);
+
+    const detail = manager.create(SaleDetail, {
+      sale_id: sale.id,
+      product_id: item.product_id,
+      product_size_id: item.product_size_id ?? null,
+      quantity: item.quantity,
+      unit_price,
+
+      // Precio fábrica histórico del producto
+      factory_price_at_sale,
+
+      stockMovement: movement,
+    });
+
+    await manager.save(SaleDetail, detail);
+
+    await manager.decrement(
+      Stock,
+      {
         warehouse_id: dto.warehouse_id,
         product_id: item.product_id,
         product_size_id: item.product_size_id ?? null,
-        quantity: -Math.abs(Number(item.quantity)),
-        unit_of_measure: item.unit_of_measure,
-        movement_type: 'salida',
-        reference: `Venta ${sale.sale_code}`,
-        user_id: dto.user_id,
-        movement_date: moment().tz('America/Lima').toDate(),
-        created_at: new Date(),
-      });
-      await manager.save(StockMovement, movement);
-      movements.push(movement);
-
-      // Crear el detalle de la venta y asociarlo con el movimiento de stock
-      const detail = manager.create(SaleDetail, {
-        sale_id: sale.id,
-        product_id: item.product_id,
-        product_size_id: item.product_size_id ?? null,
-        quantity: item.quantity,
-        unit_price,
-        sale_date: new Date(),
-        stockMovement: movement,  // Asociamos el StockMovement
-      });
-      await manager.save(SaleDetail, detail);
-
-      // Descontar stock
-      await manager.decrement(
-        Stock,
-        {
-          warehouse_id: dto.warehouse_id,
-          product_id: item.product_id,
-          product_size_id: item.product_size_id ?? null,
-        },
-        'quantity',
-        item.quantity,
-      );
-    }
-
-    return movements;
+      },
+      'quantity',
+      item.quantity,
+    );
   }
+
+  return movements;
+}
 
 
   /**
@@ -476,200 +507,199 @@ export class StockService {
   // =========================================================
 
   async getProductStockByWarehouseAndArticleCode(
-  warehouseId: number,
-  articleCode: string,
-) {
-  const code = (articleCode || '').trim().toUpperCase();
+    warehouseId: number,
+    articleCode: string,
+  ) {
+    const code = (articleCode || '').trim().toUpperCase();
 
-  if (!code) {
-    throw new BadRequestException('articleCode es requerido');
-  }
-
-  /**
-   * 1. Buscar producto una sola vez.
-   * OJO:
-   * Evitamos UPPER(p.article_code) para que pueda usar índice.
-   * Lo ideal es que article_code se guarde siempre en mayúsculas.
-   */
-  const product = await this.productRepo
-    .createQueryBuilder('p')
-    .leftJoinAndSelect('p.series', 'series')
-    .leftJoinAndSelect('p.category', 'category')
-    .leftJoinAndSelect('p.sizes', 'sizes')
-    .where('p.article_code COLLATE utf8mb4_general_ci = :code', { code })
-    .andWhere('p.status = :status', { status: true })
-    .getOne();
-
-  if (!product) {
-    throw new NotFoundException(`Producto con article_code=${code} no encontrado`);
-  }
-
-  /**
-   * 2. Buscar stock solo por warehouse + product_id.
-   * Esta consulta debe ser rápida con índice:
-   * Stock(warehouse_id, product_id, product_size_id)
-   */
-  const stockRows = await this.stockRepo
-    .createQueryBuilder('s')
-    .leftJoinAndSelect('s.productSize', 'ps')
-    .where('s.warehouse_id = :warehouseId', { warehouseId })
-    .andWhere('s.product_id = :productId', { productId: product.id })
-    .orderBy('CAST(ps.size AS UNSIGNED)', 'ASC')
-    .addOrderBy('ps.size', 'ASC')
-    .getMany();
-
-  if (!stockRows.length) {
-    throw new NotFoundException(
-      `No hay stock para warehouse=${warehouseId} y article_code=${code}`,
-    );
-  }
-
-  return {
-    product_id: product.id,
-    article_code: product.article_code,
-    article_description: product.article_description,
-    article_series: product.article_series,
-    type_origin: product.type_origin,
-    manufacturing_cost: Number(product.manufacturing_cost),
-    unit_price: Number(product.unit_price),
-    brand_name: product.brand_name,
-    model_code: product.model_code,
-    category: product.category,
-    material_type: product.material_type,
-    color: product.color,
-    stock_minimum: product.stock_minimum,
-    product_image: product.product_image,
-    status: product.status,
-    created_at: product.created_at,
-
-    series: product.series ?? null,
-    sizes: product.sizes ?? [],
-
-    stock: stockRows.map((s) => ({
-      stock_id: s.id,
-      warehouse_id: s.warehouse_id,
-      product_id: s.product_id,
-      product_size_id: s.product_size_id,
-      size: s.productSize?.size ?? null,
-      quantity: Number(s.quantity),
-      unit_of_measure: s.unit_of_measure,
-    })),
-
-    saldo_total: stockRows.reduce(
-      (acc, s) => acc + Number(s.quantity || 0),
-      0,
-    ),
-  };
-}
-
-  async registerStockForMultipleItems(
-  warehouseId: number,
-  products: {
-    productId: number;
-    productSizeId: number;
-    quantity: number;
-  }[],
-  userId: number,
-  guideId?: number,
-  guideNumber?: string,
-): Promise<Stock[]> {
-  return this.dataSource.transaction(async (manager) => {
-    const stockRepo = manager.getRepository(Stock);
-    const productRepo = manager.getRepository(Product);
-    const productSizeRepo = manager.getRepository(ProductSize);
-    const stockMovementRepo = manager.getRepository(StockMovement);
-
-    const updatedStocks: Stock[] = [];
-
-    for (const item of products) {
-      const { productId, productSizeId, quantity } = item;
-
-      if (quantity <= 0) {
-        throw new BadRequestException('La cantidad debe ser mayor a 0');
-      }
-
-      const product = await productRepo.findOne({
-        where: {
-          id: productId,
-        },
-      });
-
-      if (!product) {
-        throw new NotFoundException(
-          `Producto con ID ${productId} no encontrado`,
-        );
-      }
-
-      const productSize = await productSizeRepo.findOne({
-        where: {
-          id: productSizeId,
-          product: {
-            id: productId,
-          },
-        },
-      });
-
-      if (!productSize) {
-        throw new NotFoundException(
-          `Talla con ID ${productSizeId} no encontrada para el producto ${productId}`,
-        );
-      }
-
-      let stock = await stockRepo.findOne({
-        where: {
-          warehouse_id: warehouseId,
-          product_id: productId,
-          product_size_id: productSize.id,
-        },
-      });
-
-      const previousQuantity = stock ? Number(stock.quantity) : 0;
-      const newQuantity = previousQuantity + Number(quantity);
-
-      if (stock) {
-        stock.quantity = newQuantity;
-        stock = await stockRepo.save(stock);
-      } else {
-        stock = stockRepo.create({
-          warehouse_id: warehouseId,
-          product_id: productId,
-          product_size_id: productSize.id,
-          unit_of_measure: 'PAR',
-          quantity: newQuantity,
-        });
-
-        stock = await stockRepo.save(stock);
-      }
-
-      await stockMovementRepo.save({
-        warehouse_id: warehouseId,
-        product_id: productId,
-        product_size_id: productSize.id,
-
-        quantity: Number(quantity),
-        previous_quantity: previousQuantity,
-        new_quantity: newQuantity,
-
-        unit_of_measure: 'PAR',
-        movement_type: 'entrada',
-
-        reference_id: guideId ?? null,
-        reference_type: guideId || guideNumber ? 'GUIA' : null,
-        reference: guideNumber ?? null,
-
-        notes: `Ingreso de stock por guía ${
-          guideNumber ?? guideId ?? 'SIN GUÍA'
-        }. Stock anterior: ${previousQuantity}. Cantidad ingresada: ${quantity}. Stock nuevo: ${newQuantity}.`,
-
-        user_id: userId,
-      });
-
-      updatedStocks.push(stock);
+    if (!code) {
+      throw new BadRequestException('articleCode es requerido');
     }
 
-    return updatedStocks;
-  });
-}
+    /**
+     * 1. Buscar producto una sola vez.
+     * OJO:
+     * Evitamos UPPER(p.article_code) para que pueda usar índice.
+     * Lo ideal es que article_code se guarde siempre en mayúsculas.
+     */
+    const product = await this.productRepo
+      .createQueryBuilder('p')
+      .leftJoinAndSelect('p.series', 'series')
+      .leftJoinAndSelect('p.category', 'category')
+      .leftJoinAndSelect('p.sizes', 'sizes')
+      .where('p.article_code COLLATE utf8mb4_general_ci = :code', { code })
+      .andWhere('p.status = :status', { status: true })
+      .getOne();
+
+    if (!product) {
+      throw new NotFoundException(`Producto con article_code=${code} no encontrado`);
+    }
+
+    /**
+     * 2. Buscar stock solo por warehouse + product_id.
+     * Esta consulta debe ser rápida con índice:
+     * Stock(warehouse_id, product_id, product_size_id)
+     */
+    const stockRows = await this.stockRepo
+      .createQueryBuilder('s')
+      .leftJoinAndSelect('s.productSize', 'ps')
+      .where('s.warehouse_id = :warehouseId', { warehouseId })
+      .andWhere('s.product_id = :productId', { productId: product.id })
+      .orderBy('CAST(ps.size AS UNSIGNED)', 'ASC')
+      .addOrderBy('ps.size', 'ASC')
+      .getMany();
+
+    if (!stockRows.length) {
+      throw new NotFoundException(
+        `No hay stock para warehouse=${warehouseId} y article_code=${code}`,
+      );
+    }
+
+    return {
+      product_id: product.id,
+      article_code: product.article_code,
+      article_description: product.article_description,
+      article_series: product.article_series,
+      type_origin: product.type_origin,
+      manufacturing_cost: Number(product.manufacturing_cost),
+      unit_price: Number(product.unit_price),
+      brand_name: product.brand_name,
+      model_code: product.model_code,
+      category: product.category,
+      material_type: product.material_type,
+      color: product.color,
+      stock_minimum: product.stock_minimum,
+      product_image: product.product_image,
+      status: product.status,
+      created_at: product.created_at,
+
+      series: product.series ?? null,
+      sizes: product.sizes ?? [],
+
+      stock: stockRows.map((s) => ({
+        stock_id: s.id,
+        warehouse_id: s.warehouse_id,
+        product_id: s.product_id,
+        product_size_id: s.product_size_id,
+        size: s.productSize?.size ?? null,
+        quantity: Number(s.quantity),
+        unit_of_measure: s.unit_of_measure,
+      })),
+
+      saldo_total: stockRows.reduce(
+        (acc, s) => acc + Number(s.quantity || 0),
+        0,
+      ),
+    };
+  }
+
+  async registerStockForMultipleItems(
+    warehouseId: number,
+    products: {
+      productId: number;
+      productSizeId: number;
+      quantity: number;
+    }[],
+    userId: number,
+    guideId?: number,
+    guideNumber?: string,
+  ): Promise<Stock[]> {
+    return this.dataSource.transaction(async (manager) => {
+      const stockRepo = manager.getRepository(Stock);
+      const productRepo = manager.getRepository(Product);
+      const productSizeRepo = manager.getRepository(ProductSize);
+      const stockMovementRepo = manager.getRepository(StockMovement);
+
+      const updatedStocks: Stock[] = [];
+
+      for (const item of products) {
+        const { productId, productSizeId, quantity } = item;
+
+        if (quantity <= 0) {
+          throw new BadRequestException('La cantidad debe ser mayor a 0');
+        }
+
+        const product = await productRepo.findOne({
+          where: {
+            id: productId,
+          },
+        });
+
+        if (!product) {
+          throw new NotFoundException(
+            `Producto con ID ${productId} no encontrado`,
+          );
+        }
+
+        const productSize = await productSizeRepo.findOne({
+          where: {
+            id: productSizeId,
+            product: {
+              id: productId,
+            },
+          },
+        });
+
+        if (!productSize) {
+          throw new NotFoundException(
+            `Talla con ID ${productSizeId} no encontrada para el producto ${productId}`,
+          );
+        }
+
+        let stock = await stockRepo.findOne({
+          where: {
+            warehouse_id: warehouseId,
+            product_id: productId,
+            product_size_id: productSize.id,
+          },
+        });
+
+        const previousQuantity = stock ? Number(stock.quantity) : 0;
+        const newQuantity = previousQuantity + Number(quantity);
+
+        if (stock) {
+          stock.quantity = newQuantity;
+          stock = await stockRepo.save(stock);
+        } else {
+          stock = stockRepo.create({
+            warehouse_id: warehouseId,
+            product_id: productId,
+            product_size_id: productSize.id,
+            unit_of_measure: 'PAR',
+            quantity: newQuantity,
+          });
+
+          stock = await stockRepo.save(stock);
+        }
+
+        await stockMovementRepo.save({
+          warehouse_id: warehouseId,
+          product_id: productId,
+          product_size_id: productSize.id,
+
+          quantity: Number(quantity),
+          previous_quantity: previousQuantity,
+          new_quantity: newQuantity,
+
+          unit_of_measure: 'PAR',
+          movement_type: 'entrada',
+
+          reference_id: guideId ?? null,
+          reference_type: guideId || guideNumber ? 'GUIA' : null,
+          reference: guideNumber ?? null,
+
+          notes: `Ingreso de stock por guía ${guideNumber ?? guideId ?? 'SIN GUÍA'
+            }. Stock anterior: ${previousQuantity}. Cantidad ingresada: ${quantity}. Stock nuevo: ${newQuantity}.`,
+
+          user_id: userId,
+        });
+
+        updatedStocks.push(stock);
+      }
+
+      return updatedStocks;
+    });
+  }
 
   async getInventoryByWarehouseAndCategory(
     warehouseId: number,

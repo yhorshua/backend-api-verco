@@ -37,6 +37,13 @@ export class SaleDetail {
   @Column('decimal', { precision: 10, scale: 2 })
   unit_price: number;
 
+  @Column('decimal', {
+    precision: 10,
+    scale: 2,
+    default: 0,
+  })
+  factory_price_at_sale: number;
+
   // Relación con StockMovement
   @ManyToOne(() => StockMovement, { nullable: true })
   @JoinColumn({ name: 'stock_movement_id' })
