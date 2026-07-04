@@ -63,6 +63,8 @@ import { DashboardModule } from './dashCounter/dashCounter.module';
 import { WhatsappModule } from './whatsapp/whatsapp.module';
 import { ProductImage } from './database/entities/productImage.entity';
 import { OrdersHistorial } from './database/entities/orders-historial.entity';
+import { GuiaInternaDevolucion } from './database/entities/guia-interna-devolucion.entity';
+import { GuiaInternaDevolucionDetalle } from './database/entities/guia-interna-devolucion-detalle.entity';
 
 @Module({
   imports: [
@@ -122,6 +124,10 @@ import { OrdersHistorial } from './database/entities/orders-historial.entity';
         AbonoDetalle,
         ProductImage,
         OrdersHistorial,
+        GuiaInternaDevolucion,
+        GuiaInternaDevolucionDetalle,
+        OrdersHistorial,
+        SaldoFavorCliente,
       ],
     }),
 

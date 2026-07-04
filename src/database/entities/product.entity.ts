@@ -8,73 +8,73 @@ import { ProductImage } from './productImage.entity';
 @Entity('Products')
 export class Product {
   @PrimaryGeneratedColumn()
-  id: number;
+  id!: number;
 
   @Column()
-  article_code: string;
+  article_code!: string;
 
   @Column()
-  article_description: string;
+  article_description!: string;
 
   @Column()
-  article_series: string;
+  article_series!: string;
 
   @Column()
-  type_origin: string;
+  type_origin!: string;
 
   @Column('decimal', { precision: 10, scale: 2 })
-  manufacturing_cost: number;
+  manufacturing_cost!: number;
 
   @Column('decimal', { precision: 10, scale: 2 })
-  unit_price: number;
+  unit_price!: number;
 
   @Column({ nullable: true })
-  brand_name: string;
+  brand_name!: string;
 
   @Column({ nullable: true })
-  model_code: string;
+  model_code!: string;
 
 
   @ManyToOne(() => Category, (category) => category.products)
   @JoinColumn({ name: 'category_id' }) // Especifica explícitamente el nombre de la columna de la clave foránea
-  category: Category;
+  category!: Category;
 
   @Column({ nullable: true })
-  material_type: string;
+  material_type!: string;
 
   @Column({ nullable: true })
-  color: string;
+  color!: string;
 
   @Column({ nullable: true })
-  stock_minimum: number;
+  stock_minimum!: number;
 
   @Column({ nullable: true })
-  product_image: string;
+  product_image!: string;
 
   @Column({ type: 'bit', default: true })
-  status: boolean;
+  status!: boolean;
 
   @Column({ type: 'datetime', default: () => 'GETDATE()' })
-  created_at: Date;
+  created_at!: Date;
 
   @OneToMany(() => ProductSize, (size) => size.product)
-  sizes: ProductSize[];
+  sizes!: ProductSize[];
 
   @ManyToOne(() => Series)
   @JoinColumn({ name: 'article_series', referencedColumnName: 'code' })
-  series: Series;
+  series!: Series;
 
   @OneToMany(() => Stock, (stock) => stock.product)
-  stock: Stock[];
+  stock!: Stock[];
 
   @Column('decimal', { precision: 10, scale: 2 })
-  factory_price: number;
+  factory_price!: number;
 
   @Column('decimal', { precision: 10, scale: 2 })
-  dropshipping_price: number;
+  dropshipping_price!: number;
 
   @Column('decimal', { precision: 10, scale: 2 })
-  wholesale_price: number;
+  wholesale_price!: number;
 
   @Column({ type: 'varchar', length: 150, nullable: true })
   slug?: string;
@@ -98,16 +98,16 @@ export class Product {
   original_price?: number;
 
   @Column({ type: 'int', default: 0 })
-  discount_percent: number;
+  discount_percent!: number;
 
   @Column({ type: 'bit', default: () => "b'0'" })
-  is_new: boolean;
+  is_new!: boolean;
 
   @Column({ type: 'bit', default: () => "b'0'" })
-  is_featured: boolean;
+  is_featured!: boolean;
 
   @Column({ type: 'bit', default: () => "b'0'" })
-  is_published: boolean;
+  is_published!: boolean;
 
   @Column({ type: 'varchar', length: 150, nullable: true })
   seo_title?: string;
@@ -116,5 +116,5 @@ export class Product {
   seo_description?: string;
 
   @OneToMany(() => ProductImage, (image) => image.product)
-  images: ProductImage[];
+  images!: ProductImage[];
 }
