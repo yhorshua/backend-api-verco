@@ -1,39 +1,23 @@
-import { Body, Controller, Get, Param, Post, Query, Request, UseGuards } from "@nestjs/common";
-import { EstadoCuentaService } from "./estado-cuenta.service";
-import { RegistrarAbonoDto } from "./dto/registrarAbonoDto";
-import { EstadoCuentaFiltroDto } from "./dto/estadoCuentaFilterDto";
-import { JwtAuthGuard } from "src/auth/jwt-auth.guard";
+import { Body, Controller, Get, Param, ParseIntPipe, Post } from '@nestjs/common';
+import { EstadoCuentaService } from './estado-cuenta.service';
+import { RegistrarAbonoEstadoCuentaDto } from './dto/registrarAbonoDto';
 
 @Controller('estado-cuenta')
 export class EstadoCuentaController {
-  constructor(
-    private readonly service: EstadoCuentaService,
-  ) { }
+  constructor(private readonly service: EstadoCuentaService) {}
 
   @Get('cliente/:clienteId')
-  getEstadoCuenta(
-    @Param('clienteId') clienteId: number,
-    @Query() filtro: EstadoCuentaFiltroDto,
-  ) {
-    return this.service.getEstadoCuentaCliente(
-      Number(clienteId),
-    );
+  getEstadoCuentaCliente(@Param('clienteId', ParseIntPipe) clienteId: number) {
+    return this.service.getEstadoCuentaCliente(clienteId);
+  }
+
+  @Get(':id')
+  getDetalleEstadoCuenta(@Param('id', ParseIntPipe) id: number) {
+    return this.service.getDetalleEstadoCuenta(id);
   }
 
   @Post('abono')
-  @UseGuards(JwtAuthGuard)
-  registrarAbono(
-    @Body()
-    dto: RegistrarAbonoDto,
-    @Request() req,
-  ) {
-    const userId =
-      req.user?.userId ||
-      req.user?.id ||
-      req.user?.sub;
-    return this.service.registrarAbono(
-      dto,
-      userId,
-    );
+  registrarAbono(@Body() dto: RegistrarAbonoEstadoCuentaDto) {
+    return this.service.registrarAbono(dto);
   }
 }

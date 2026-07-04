@@ -7,9 +7,10 @@ import { Stock } from '../database/entities/stock.entity';
 import { ProductSize } from 'src/database/entities/product-size.entity';
 import { Series } from 'src/database/entities/series.entity';
 import { Category } from 'src/database/entities/categories.entity';
+import { ProductImage } from 'src/database/entities/productImage.entity';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Product, Stock, ProductSize, Series, Category])], // 👈 registra repositorios
+  imports: [TypeOrmModule.forFeature([Product, Stock, ProductSize, Series, Category, ProductImage])], // 👈 registra repositorios
   controllers: [ProductsController],
   providers: [ProductsService],
   exports: [ProductsService], // opcional si otros módulos usan ProductsService

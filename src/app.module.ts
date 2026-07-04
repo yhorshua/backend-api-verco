@@ -61,6 +61,8 @@ import { AbonoDetalle } from './database/entities/abonoDetalle.entity';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { DashboardModule } from './dashCounter/dashCounter.module';
 import { WhatsappModule } from './whatsapp/whatsapp.module';
+import { ProductImage } from './database/entities/productImage.entity';
+import { OrdersHistorial } from './database/entities/orders-historial.entity';
 
 @Module({
   imports: [
@@ -118,6 +120,8 @@ import { WhatsappModule } from './whatsapp/whatsapp.module';
         WebSaleDetail,
         SaldoFavorCliente,
         AbonoDetalle,
+        ProductImage,
+        OrdersHistorial,
       ],
     }),
 

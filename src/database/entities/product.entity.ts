@@ -3,6 +3,7 @@ import { ProductSize } from './product-size.entity';
 import { Series } from './series.entity';
 import { Stock } from './stock.entity';
 import { Category } from './categories.entity';
+import { ProductImage } from './productImage.entity';
 
 @Entity('Products')
 export class Product {
@@ -66,12 +67,54 @@ export class Product {
   @OneToMany(() => Stock, (stock) => stock.product)
   stock: Stock[];
 
-  @Column('decimal', { precision: 10, scale: 2})
+  @Column('decimal', { precision: 10, scale: 2 })
   factory_price: number;
 
-  @Column('decimal', { precision: 10, scale: 2})
+  @Column('decimal', { precision: 10, scale: 2 })
   dropshipping_price: number;
 
-  @Column('decimal', { precision: 10, scale: 2})
+  @Column('decimal', { precision: 10, scale: 2 })
   wholesale_price: number;
+
+  @Column({ type: 'varchar', length: 150, nullable: true })
+  slug?: string;
+
+  @Column({ type: 'varchar', length: 150, nullable: true })
+  ecommerce_name?: string;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  short_description?: string;
+
+  @Column({ type: 'text', nullable: true })
+  full_description?: string;
+
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  gender?: string;
+
+  @Column('decimal', { precision: 10, scale: 2, nullable: true })
+  selling_price?: number;
+
+  @Column('decimal', { precision: 10, scale: 2, nullable: true })
+  original_price?: number;
+
+  @Column({ type: 'int', default: 0 })
+  discount_percent: number;
+
+  @Column({ type: 'bit', default: () => "b'0'" })
+  is_new: boolean;
+
+  @Column({ type: 'bit', default: () => "b'0'" })
+  is_featured: boolean;
+
+  @Column({ type: 'bit', default: () => "b'0'" })
+  is_published: boolean;
+
+  @Column({ type: 'varchar', length: 150, nullable: true })
+  seo_title?: string;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  seo_description?: string;
+
+  @OneToMany(() => ProductImage, (image) => image.product)
+  images: ProductImage[];
 }

@@ -1,6 +1,12 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource, EntityManager } from 'typeorm';
+import {
+  Repository,
+  DataSource,
+  EntityManager,
+  Brackets,
+  In,
+} from 'typeorm';
 
 import { Stock } from '../database/entities/stock.entity';
 import { StockMovement } from '../database/entities/stock-movements';
@@ -144,28 +150,66 @@ export class StockService {
   ) {
     let total_amount = 0;
 
+    const normalizedItems = dto.items.map((item) => ({
+      ...item,
+      product_id: Number(item.product_id),
+      product_size_id: item.product_size_id ? Number(item.product_size_id) : null,
+      quantity: Number(item.quantity),
+      unit_price: Number(item.unit_price),
+      unit_of_measure: item.unit_of_measure ?? 'PAR',
+    }));
+
+    const stocks = await manager
+      .getRepository(Stock)
+      .createQueryBuilder('stock')
+      .innerJoinAndSelect('stock.product', 'product')
+      .where('stock.warehouse_id = :warehouseId', {
+        warehouseId: dto.warehouse_id,
+      })
+      .andWhere(
+        new Brackets((qb) => {
+          normalizedItems.forEach((item, index) => {
+            qb.orWhere(
+              `(stock.product_id = :productId${index} AND stock.product_size_id ${item.product_size_id === null
+                ? `IS NULL`
+                : `= :productSizeId${index}`
+              })`,
+              {
+                [`productId${index}`]: item.product_id,
+                [`productSizeId${index}`]: item.product_size_id,
+              },
+            );
+          });
+        }),
+      )
+      .setLock('pessimistic_write')
+      .getMany();
+
+    const stockMap = new Map<string, Stock>();
+
+    for (const stock of stocks) {
+      const key = `${stock.product_id}-${stock.product_size_id ?? 'null'}`;
+      stockMap.set(key, stock);
+    }
+
     const validated: Array<{
       item: {
         product_id: number;
-        product_size_id?: number;
+        product_size_id: number | null;
         quantity: number;
+        unit_price: number;
         unit_of_measure: string;
       };
+      stock: Stock;
+      previous_quantity: number;
+      new_quantity: number;
       unit_price: number;
       factory_price_at_sale: number;
     }> = [];
 
-    for (const item of dto.items) {
-      const where: any = {
-        warehouse_id: dto.warehouse_id,
-        product_id: item.product_id,
-        product_size_id: item.product_size_id ?? null,
-      };
-
-      const stock = await manager.findOne(Stock, {
-        where,
-        relations: ['product'],
-      });
+    for (const item of normalizedItems) {
+      const key = `${item.product_id}-${item.product_size_id ?? 'null'}`;
+      const stock = stockMap.get(key);
 
       if (!stock) {
         throw new NotFoundException(
@@ -179,19 +223,40 @@ export class StockService {
         );
       }
 
-      if (Number(stock.quantity) < Number(item.quantity)) {
-        throw new NotFoundException(
-          `Stock insuficiente: product_id=${item.product_id}, size=${item.product_size_id ?? 'N/A'} (disp=${stock.quantity}, req=${item.quantity})`,
+      const previousQuantity = Number(stock.quantity);
+      const quantityToSubtract = Math.abs(Number(item.quantity));
+      const newQuantity = Number(
+        (previousQuantity - quantityToSubtract).toFixed(2),
+      );
+
+      if (newQuantity < 0) {
+        throw new BadRequestException(
+          `Stock insuficiente para product_id=${item.product_id}, size=${item.product_size_id ?? 'N/A'} (disp=${previousQuantity}, req=${quantityToSubtract})`,
         );
       }
 
       const unit_price = Number(item.unit_price);
       const factory_price_at_sale = Number(stock.product.factory_price ?? 0);
 
-      total_amount += Number(item.quantity) * unit_price;
+      if (!Number.isFinite(unit_price) || unit_price < 0) {
+        throw new BadRequestException(
+          `Precio unitario inválido para product_id=${item.product_id}`,
+        );
+      }
+
+      if (!Number.isFinite(factory_price_at_sale)) {
+        throw new BadRequestException(
+          `Precio de fábrica inválido para product_id=${item.product_id}`,
+        );
+      }
+
+      total_amount += quantityToSubtract * unit_price;
 
       validated.push({
         item,
+        stock,
+        previous_quantity: previousQuantity,
+        new_quantity: newQuantity,
         unit_price,
         factory_price_at_sale,
       });
@@ -225,70 +290,79 @@ export class StockService {
     return sale;
   }
 
- private async createDetailsAndStockOutputs(
-  manager: EntityManager,
-  dto: CreateSaleDto,
-  sale: Sale,
-  validated: Array<{
-    item: any;
-    unit_price: number;
-    factory_price_at_sale: number;
-  }>,
-): Promise<StockMovement[]> {
-  const movements: StockMovement[] = [];
+  private async createDetailsAndStockOutputs(
+    manager: EntityManager,
+    dto: CreateSaleDto,
+    sale: Sale,
+    validated: Array<{
+      item: {
+        product_id: number;
+        product_size_id: number | null;
+        quantity: number;
+        unit_price: number;
+        unit_of_measure: string;
+      };
+      stock: Stock;
+      previous_quantity: number;
+      new_quantity: number;
+      unit_price: number;
+      factory_price_at_sale: number;
+    }>,
+  ): Promise<StockMovement[]> {
+    const movementsToSave: StockMovement[] = [];
+    const stocksToUpdate: Stock[] = [];
 
-  for (const {
-    item,
-    unit_price,
-    factory_price_at_sale,
-  } of validated) {
-    const movement = manager.create(StockMovement, {
-      warehouse_id: dto.warehouse_id,
-      product_id: item.product_id,
-      product_size_id: item.product_size_id ?? null,
-      quantity: -Math.abs(Number(item.quantity)),
-      unit_of_measure: item.unit_of_measure,
-      movement_type: 'salida',
-      reference: `Venta ${sale.sale_code}`,
-      user_id: dto.user_id,
-      movement_date: moment().tz('America/Lima').toDate(),
-      created_at: new Date(),
-    });
+    for (const row of validated) {
+      const quantityToSubtract = Math.abs(Number(row.item.quantity));
 
-    await manager.save(StockMovement, movement);
-
-    movements.push(movement);
-
-    const detail = manager.create(SaleDetail, {
-      sale_id: sale.id,
-      product_id: item.product_id,
-      product_size_id: item.product_size_id ?? null,
-      quantity: item.quantity,
-      unit_price,
-
-      // Precio fábrica histórico del producto
-      factory_price_at_sale,
-
-      stockMovement: movement,
-    });
-
-    await manager.save(SaleDetail, detail);
-
-    await manager.decrement(
-      Stock,
-      {
+      const movement = manager.create(StockMovement, {
         warehouse_id: dto.warehouse_id,
-        product_id: item.product_id,
-        product_size_id: item.product_size_id ?? null,
-      },
-      'quantity',
-      item.quantity,
+        product_id: row.item.product_id,
+        product_size_id: row.item.product_size_id,
+
+        quantity: -quantityToSubtract,
+        previous_quantity: row.previous_quantity,
+        new_quantity: row.new_quantity,
+
+        unit_of_measure: row.item.unit_of_measure ?? 'PAR',
+        movement_type: 'salida',
+
+        reference_id: sale.id,
+        reference_type: 'VENTA',
+        reference: sale.sale_code,
+
+        notes: `Salida de stock por venta ${sale.sale_code}. Stock anterior: ${row.previous_quantity}. Cantidad vendida: ${quantityToSubtract}. Stock nuevo: ${row.new_quantity}.`,
+
+        user_id: dto.user_id,
+        created_at: new Date(),
+      });
+
+      movementsToSave.push(movement);
+
+      row.stock.quantity = row.new_quantity;
+      stocksToUpdate.push(row.stock);
+    }
+
+    const savedMovements = await manager.save(StockMovement, movementsToSave);
+
+    const detailsToSave = validated.map((row, index) =>
+      manager.create(SaleDetail, {
+        sale_id: sale.id,
+        product_id: row.item.product_id,
+        product_size_id: row.item.product_size_id,
+        quantity: Number(row.item.quantity),
+        unit_price: Number(row.unit_price),
+        factory_price_at_sale: Number(row.factory_price_at_sale),
+        stock_movement_id: savedMovements[index].id,
+      }),
     );
+
+    await manager.save(SaleDetail, detailsToSave);
+
+    await manager.save(Stock, stocksToUpdate);
+
+    return savedMovements;
   }
-
-  return movements;
-}
-
 
   /**
    * ✅ Crea SalePayments y valida con el total real (sale.total_amount)
@@ -603,81 +677,167 @@ export class StockService {
     userId: number,
     guideId?: number,
     guideNumber?: string,
-  ): Promise<Stock[]> {
+  ): Promise<{
+    stocks: Stock[];
+    movements: StockMovement[];
+  }> {
+    if (!products?.length) {
+      throw new BadRequestException('Debe enviar al menos un producto');
+    }
+
     return this.dataSource.transaction(async (manager) => {
       const stockRepo = manager.getRepository(Stock);
       const productRepo = manager.getRepository(Product);
       const productSizeRepo = manager.getRepository(ProductSize);
       const stockMovementRepo = manager.getRepository(StockMovement);
 
-      const updatedStocks: Stock[] = [];
+      const groupedMap = new Map<
+        string,
+        {
+          productId: number;
+          productSizeId: number;
+          quantity: number;
+        }
+      >();
 
       for (const item of products) {
-        const { productId, productSizeId, quantity } = item;
+        const productId = Number(item.productId);
+        const productSizeId = Number(item.productSizeId);
+        const quantity = Number(item.quantity);
 
-        if (quantity <= 0) {
+        if (!Number.isFinite(productId) || productId <= 0) {
+          throw new BadRequestException('productId inválido');
+        }
+
+        if (!Number.isFinite(productSizeId) || productSizeId <= 0) {
+          throw new BadRequestException('productSizeId inválido');
+        }
+
+        if (!Number.isFinite(quantity) || quantity <= 0) {
           throw new BadRequestException('La cantidad debe ser mayor a 0');
         }
 
-        const product = await productRepo.findOne({
-          where: {
-            id: productId,
-          },
-        });
+        const key = `${productId}-${productSizeId}`;
+        const existing = groupedMap.get(key);
 
-        if (!product) {
+        if (existing) {
+          existing.quantity = Number((existing.quantity + quantity).toFixed(2));
+        } else {
+          groupedMap.set(key, {
+            productId,
+            productSizeId,
+            quantity,
+          });
+        }
+      }
+
+      const groupedItems = Array.from(groupedMap.values());
+
+      const productIds = [...new Set(groupedItems.map((item) => item.productId))];
+      const productSizeIds = [
+        ...new Set(groupedItems.map((item) => item.productSizeId)),
+      ];
+
+      const existingProducts = await productRepo.find({
+        where: {
+          id: In(productIds),
+        },
+        select: {
+          id: true,
+        },
+      });
+
+      const existingProductIds = new Set(existingProducts.map((p) => p.id));
+
+      for (const productId of productIds) {
+        if (!existingProductIds.has(productId)) {
+          throw new NotFoundException(`Producto con ID ${productId} no encontrado`);
+        }
+      }
+
+      const productSizes = await productSizeRepo
+        .createQueryBuilder('ps')
+        .select(['ps.id', 'ps.size'])
+        .addSelect('ps.product_id')
+        .where('ps.id IN (:...productSizeIds)', { productSizeIds })
+        .getMany();
+
+      const sizeMap = new Map<string, ProductSize>();
+
+      for (const size of productSizes as any[]) {
+        const productId = Number(size.product_id ?? size.product?.id);
+        const key = `${productId}-${size.id}`;
+        sizeMap.set(key, size);
+      }
+
+      for (const item of groupedItems) {
+        const key = `${item.productId}-${item.productSizeId}`;
+
+        if (!sizeMap.has(key)) {
           throw new NotFoundException(
-            `Producto con ID ${productId} no encontrado`,
+            `Talla con ID ${item.productSizeId} no encontrada para el producto ${item.productId}`,
           );
         }
+      }
 
-        const productSize = await productSizeRepo.findOne({
-          where: {
-            id: productSizeId,
-            product: {
-              id: productId,
-            },
-          },
-        });
+      const stocks = await stockRepo
+        .createQueryBuilder('stock')
+        .where('stock.warehouse_id = :warehouseId', { warehouseId })
+        .andWhere(
+          new Brackets((qb) => {
+            groupedItems.forEach((item, index) => {
+              qb.orWhere(
+                `(stock.product_id = :productId${index} AND stock.product_size_id = :productSizeId${index})`,
+                {
+                  [`productId${index}`]: item.productId,
+                  [`productSizeId${index}`]: item.productSizeId,
+                },
+              );
+            });
+          }),
+        )
+        .setLock('pessimistic_write')
+        .getMany();
 
-        if (!productSize) {
-          throw new NotFoundException(
-            `Talla con ID ${productSizeId} no encontrada para el producto ${productId}`,
-          );
-        }
+      const stockMap = new Map<string, Stock>();
 
-        let stock = await stockRepo.findOne({
-          where: {
-            warehouse_id: warehouseId,
-            product_id: productId,
-            product_size_id: productSize.id,
-          },
-        });
+      for (const stock of stocks) {
+        const key = `${stock.product_id}-${stock.product_size_id}`;
+        stockMap.set(key, stock);
+      }
+
+      const stocksToSave: Stock[] = [];
+      const movementsToSave: StockMovement[] = [];
+
+      for (const item of groupedItems) {
+        const key = `${item.productId}-${item.productSizeId}`;
+        let stock = stockMap.get(key);
 
         const previousQuantity = stock ? Number(stock.quantity) : 0;
-        const newQuantity = previousQuantity + Number(quantity);
+        const newQuantity = Number(
+          (previousQuantity + Number(item.quantity)).toFixed(2),
+        );
 
         if (stock) {
           stock.quantity = newQuantity;
-          stock = await stockRepo.save(stock);
         } else {
           stock = stockRepo.create({
             warehouse_id: warehouseId,
-            product_id: productId,
-            product_size_id: productSize.id,
+            product_id: item.productId,
+            product_size_id: item.productSizeId,
             unit_of_measure: 'PAR',
             quantity: newQuantity,
           });
-
-          stock = await stockRepo.save(stock);
         }
 
-        await stockMovementRepo.save({
-          warehouse_id: warehouseId,
-          product_id: productId,
-          product_size_id: productSize.id,
+        stocksToSave.push(stock);
 
-          quantity: Number(quantity),
+        const movement = stockMovementRepo.create({
+          warehouse_id: warehouseId,
+          product_id: item.productId,
+          product_size_id: item.productSizeId,
+
+          quantity: Number(item.quantity),
           previous_quantity: previousQuantity,
           new_quantity: newQuantity,
 
@@ -689,15 +849,23 @@ export class StockService {
           reference: guideNumber ?? null,
 
           notes: `Ingreso de stock por guía ${guideNumber ?? guideId ?? 'SIN GUÍA'
-            }. Stock anterior: ${previousQuantity}. Cantidad ingresada: ${quantity}. Stock nuevo: ${newQuantity}.`,
+            }. Stock anterior: ${previousQuantity}. Cantidad ingresada: ${item.quantity
+            }. Stock nuevo: ${newQuantity}.`,
 
           user_id: userId,
+          created_at: new Date(),
         });
 
-        updatedStocks.push(stock);
+        movementsToSave.push(movement);
       }
 
-      return updatedStocks;
+      const savedStocks = await stockRepo.save(stocksToSave);
+      const savedMovements = await stockMovementRepo.save(movementsToSave);
+
+      return {
+        stocks: savedStocks,
+        movements: savedMovements,
+      };
     });
   }
 
@@ -772,7 +940,6 @@ export class StockService {
     }[],
   ) {
     return this.dataSource.transaction(async (manager) => {
-
       const movements: StockMovement[] = [];
 
       for (const item of items) {
@@ -790,30 +957,39 @@ export class StockService {
           );
         }
 
-        const current = Number(stock.quantity);
-        const difference = Number(item.new_quantity) - current;
+        const previousQuantity = Number(stock.quantity);
+        const newQuantity = Number(item.new_quantity);
+        const difference = Number((newQuantity - previousQuantity).toFixed(2));
 
-        // Si no hay cambio, ignoramos
         if (difference === 0) continue;
 
-        // Crear movimiento (auditoría)
         const movement = manager.create(StockMovement, {
           warehouse_id: warehouseId,
           product_id: item.product_id,
           product_size_id: item.product_size_id,
-          quantity: difference, // puede ser + o -
+
+          quantity: difference,
+          previous_quantity: previousQuantity,
+          new_quantity: newQuantity,
+
           unit_of_measure: 'PAR',
           movement_type: 'ajuste',
+
+          reference_id: null,
+          reference_type: 'AJUSTE',
           reference: 'Ajuste de inventario',
+
+          notes: `Ajuste de inventario. Stock anterior: ${previousQuantity}. Stock nuevo: ${newQuantity}. Diferencia: ${difference}.`,
+
           user_id: userId,
-          movement_date: moment().tz('America/Lima').toDate(),
+          created_at: new Date(),
         });
 
-        await manager.save(StockMovement, movement);
-        movements.push(movement);
+        const savedMovement = await manager.save(StockMovement, movement);
 
-        // Actualizar stock
-        stock.quantity = item.new_quantity;
+        movements.push(savedMovement);
+
+        stock.quantity = newQuantity;
         await manager.save(Stock, stock);
       }
 

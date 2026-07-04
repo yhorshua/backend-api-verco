@@ -1,14 +1,25 @@
-// create-guia-interna.dto.ts
-import { IsDateString, IsInt, IsOptional, IsString } from 'class-validator';
-
+import { IsDateString, IsEnum, IsInt, IsOptional, IsString } from 'class-validator';
 import { TipoCreditoEnum } from '../../database/entities/estado-cuenta.entity';
 
 export class CreateGuiaInternaDto {
-  
-  @IsInt() order_id!: number;
-  @IsInt() usuario_id!: number;
-  @IsOptional() @IsString() observaciones?: string;
-  @IsString() tipo_credito!: TipoCreditoEnum;
+  @IsInt()
+  order_id!: number;
 
-  @IsOptional() @IsDateString() fecha_vencimiento?: string;
+  @IsInt()
+  usuario_id!: number;
+
+  @IsEnum(TipoCreditoEnum)
+  tipo_credito!: TipoCreditoEnum;
+
+  @IsOptional()
+  @IsDateString()
+  fecha_vencimiento?: string;
+
+  @IsOptional()
+  @IsInt()
+  dias_credito?: number;
+
+  @IsOptional()
+  @IsString()
+  observaciones?: string;
 }

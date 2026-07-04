@@ -1,395 +1,248 @@
 import {
-    BadRequestException,
-    Injectable,
-    NotFoundException,
+  BadRequestException,
+  Injectable,
+  NotFoundException,
 } from '@nestjs/common';
-
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, In, Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 
-import { EstadoCuenta, EstadoCuentaEnum } from '../database/entities/estado-cuenta.entity';
-import { Abono } from '../database/entities/abono.entity';
-import { Client } from '../database/entities/client.entity';
-
-import { RegistrarAbonoDto } from './dto/registrarAbonoDto';
-import { AbonoDetalle } from 'src/database/entities/abonoDetalle.entity';
-import { EstadoCuentaHistorial } from 'src/database/entities/estado-cuenta-historial.entity';
-import { SaldoFavorCliente } from 'src/database/entities/saldoFavorCliente';
-import { Cuota } from 'src/database/entities/cuota.entity';
+import {
+  EstadoCuenta,
+  EstadoCuentaEnum,
+} from '../database/entities/estado-cuenta.entity';
+import {
+  EstadoCuentaHistorial,
+  TipoMovimientoCuentaEnum,
+} from '../database/entities/estado-cuenta-historial.entity';
 
 @Injectable()
 export class EstadoCuentaService {
-    constructor(
-        private readonly dataSource: DataSource,
+  constructor(
+    private readonly dataSource: DataSource,
 
-        @InjectRepository(Client)
-        private readonly clientRepo: Repository<Client>,
+    @InjectRepository(EstadoCuenta)
+    private readonly estadoCuentaRepo: Repository<EstadoCuenta>,
 
-        @InjectRepository(EstadoCuenta)
-        private readonly estadoCuentaRepo: Repository<EstadoCuenta>,
+    @InjectRepository(EstadoCuentaHistorial)
+    private readonly historialRepo: Repository<EstadoCuentaHistorial>,
+  ) {}
 
-        @InjectRepository(Abono)
-        private readonly abonoRepo: Repository<Abono>,
+  async getEstadoCuentaCliente(clienteId: number) {
+    const cuentas = await this.estadoCuentaRepo
+      .createQueryBuilder('ec')
+      .leftJoinAndSelect('ec.cliente', 'cliente')
+      .leftJoinAndSelect('ec.vendedor', 'vendedor')
+      .leftJoinAndSelect('ec.guia_interna', 'guia')
+      .where('ec.cliente_id = :clienteId', { clienteId })
+      .orderBy('ec.fecha_registro', 'DESC')
+      .getMany();
 
-        @InjectRepository(AbonoDetalle)
-        private readonly abonoDetalleRepo: Repository<AbonoDetalle>,
+    const resumen = {
+      total_documentos: cuentas.length,
+      total_deuda: 0,
+      total_pagado: 0,
+      total_saldo: 0,
+      pendientes: 0,
+      parciales: 0,
+      pagados: 0,
+    };
 
-        @InjectRepository(EstadoCuentaHistorial)
-        private readonly historialRepo: Repository<EstadoCuentaHistorial>,
+    const documentos = cuentas.map((cuenta) => {
+      const montoInicial = Number(cuenta.monto_inicial || 0);
+      const montoPago = Number(cuenta.monto_pago || 0);
+      const montoSaldo = Number(cuenta.monto_saldo || 0);
 
-        @InjectRepository(SaldoFavorCliente)
-        private readonly saldoFavorRepo: Repository<SaldoFavorCliente>,
+      resumen.total_deuda += montoInicial;
+      resumen.total_pagado += montoPago;
+      resumen.total_saldo += montoSaldo;
 
-        @InjectRepository(Cuota)
-        private readonly cuotaRepo: Repository<Cuota>,
-    ) { }
+      if (cuenta.estado === EstadoCuentaEnum.PENDIENTE) resumen.pendientes += 1;
+      if (cuenta.estado === EstadoCuentaEnum.PARCIAL) resumen.parciales += 1;
+      if (cuenta.estado === EstadoCuentaEnum.PAGADO) resumen.pagados += 1;
 
+      return {
+        id_estado_cuenta: cuenta.id,
+        id_guia_interna: cuenta.id_guia_interna,
+        guia: cuenta.guia_interna
+          ? {
+              id: cuenta.guia_interna.id,
+              proforma_number: cuenta.guia_interna.proforma_number,
+              fecha_registro: cuenta.guia_interna.fecha_registro,
+              total_precio: Number(cuenta.guia_interna.total_precio || 0),
+            }
+          : null,
+        vendedor: cuenta.vendedor
+          ? {
+              id: cuenta.vendedor.id,
+              nombre: (cuenta.vendedor as any).full_name ?? '',
+            }
+          : null,
+        monto_inicial: montoInicial,
+        monto_pago: montoPago,
+        monto_saldo: montoSaldo,
+        estado: cuenta.estado,
+        tipo_credito: cuenta.tipo_credito,
+        fecha_registro: cuenta.fecha_registro,
+        fecha_vencimiento: cuenta.fecha_vencimiento,
+        dias_credito: cuenta.dias_credito,
+      };
+    });
 
-    async getEstadoCuentaCliente(
-        clienteId: number,
-    ) {
-        const cliente =
-            await this.clientRepo.findOne({
-                where: {
-                    id: clienteId,
-                },
-            });
+    resumen.total_deuda = Number(resumen.total_deuda.toFixed(2));
+    resumen.total_pagado = Number(resumen.total_pagado.toFixed(2));
+    resumen.total_saldo = Number(resumen.total_saldo.toFixed(2));
 
-        if (!cliente) {
-            throw new NotFoundException(
-                'Cliente no encontrado',
-            );
-        }
+    return {
+      cliente_id: clienteId,
+      resumen,
+      documentos,
+    };
+  }
 
-        const cuentas =
-            await this.estadoCuentaRepo.find({
-                where: {
-                    cliente_id: clienteId,
-                },
-                relations: [
-                    'guia_interna',
-                ],
-                order: {
-                    fecha_registro: 'DESC',
-                },
-            });
+  async getDetalleEstadoCuenta(idEstadoCuenta: number) {
+    const cuenta = await this.estadoCuentaRepo
+      .createQueryBuilder('ec')
+      .leftJoinAndSelect('ec.cliente', 'cliente')
+      .leftJoinAndSelect('ec.vendedor', 'vendedor')
+      .leftJoinAndSelect('ec.guia_interna', 'guia')
+      .where('ec.id = :idEstadoCuenta', { idEstadoCuenta })
+      .getOne();
 
-        const historialAbonos =
-            await this.abonoDetalleRepo.find({
-                where: {
-                    estadoCuenta: {
-                        cliente_id: clienteId,
-                    },
-                },
-                relations: [
-                    'abono',
-                    'estadoCuenta',
-                ],
-                order: {
-                    abono: {
-                        fecha_abono: 'DESC',
-                    },
-                },
-            });
-
-        const historialMovimientos =
-            await this.historialRepo.find({
-                where: {
-                    estadoCuenta: {
-                        cliente_id: clienteId,
-                    },
-                },
-                relations: [
-                    'estadoCuenta',
-                ],
-                order: {
-                    fecha_registro: 'DESC',
-                },
-            });
-
-        const cuotas =
-            await this.cuotaRepo.find({
-                where: {
-                    estadoCuenta: {
-                        cliente_id: clienteId,
-                    },
-                },
-                relations: [
-                    'estadoCuenta',
-                ],
-                order: {
-                    fecha_vencimiento: 'ASC',
-                },
-            });
-
-        const saldoFavor =
-            await this.saldoFavorRepo.find({
-                where: {
-                    cliente_id: clienteId,
-                },
-                order: {
-                    fecha_registro: 'DESC',
-                },
-            });
-
-        const deudaTotal =
-            cuentas.reduce(
-                (acc, x) =>
-                    acc + Number(x.monto_inicial),
-                0,
-            );
-
-        const totalPagado =
-            cuentas.reduce(
-                (acc, x) =>
-                    acc + Number(x.monto_pago || 0),
-                0,
-            );
-
-        const saldoPendiente =
-            cuentas.reduce(
-                (acc, x) =>
-                    acc + Number(x.monto_saldo),
-                0,
-            );
-
-        const saldoFavorTotal =
-            saldoFavor.reduce(
-                (acc, x) =>
-                    acc + Number(x.saldo),
-                0,
-            );
-
-        const cuentasPendientes =
-            cuentas.filter(
-                (x) => x.estado !== 'PAGADO',
-            ).length;
-
-        const cuentasPagadas =
-            cuentas.filter(
-                (x) => x.estado === 'PAGADO',
-            ).length;
-
-        const creditosVencidos =
-            cuentas.filter(
-                (x) =>
-                    x.fecha_vencimiento &&
-                    new Date(x.fecha_vencimiento) < new Date() &&
-                    x.estado !== 'PAGADO',
-            ).length;
-
-        return {
-            cliente,
-
-            resumen: {
-                deudaTotal,
-                totalPagado,
-                saldoPendiente,
-                saldoFavor: saldoFavorTotal,
-                cuentasPendientes,
-                cuentasPagadas,
-                creditosVencidos,
-            },
-
-            cuentas,
-
-            historialAbonos,
-
-            historialMovimientos,
-
-            cuotas,
-
-            saldoFavor,
-        };
+    if (!cuenta) {
+      throw new NotFoundException('Estado de cuenta no encontrado');
     }
 
-    async registrarAbono(
-        dto: RegistrarAbonoDto,
-        userId: number,
-    ) {
-        if (dto.monto_abono <= 0) {
-            throw new BadRequestException(
-                'El monto del abono debe ser mayor a cero',
-            );
-        }
+    const historial = await this.historialRepo.find({
+      where: {
+        id_estado_cuenta: idEstadoCuenta,
+      },
+      order: {
+        fecha_registro: 'DESC',
+      },
+    });
 
-        return this.dataSource.transaction(
-            async (manager) => {
+    return {
+      cuenta: {
+        id_estado_cuenta: cuenta.id,
+        cliente_id: cuenta.cliente_id,
+        vendedor_id: cuenta.vendedor_id,
+        id_guia_interna: cuenta.id_guia_interna,
+        monto_inicial: Number(cuenta.monto_inicial || 0),
+        monto_pago: Number(cuenta.monto_pago || 0),
+        monto_saldo: Number(cuenta.monto_saldo || 0),
+        estado: cuenta.estado,
+        tipo_credito: cuenta.tipo_credito,
+        fecha_registro: cuenta.fecha_registro,
+        fecha_vencimiento: cuenta.fecha_vencimiento,
+        dias_credito: cuenta.dias_credito,
+      },
+      historial: historial.map((h) => ({
+        id_historial: h.id,
+        tipo_movimiento: h.tipo_movimiento,
+        monto_abono: Number(h.monto_abono || 0),
+        saldo_anterior: h.saldo_anterior !== null ? Number(h.saldo_anterior) : null,
+        saldo_nuevo: h.saldo_nuevo !== null ? Number(h.saldo_nuevo) : null,
+        metodo_pago: h.metodo_pago,
+        numero_operacion: h.numero_operacion,
+        fecha_pago: h.fecha_pago,
+        observacion: h.observacion,
+        comprobante_url: h.comprobante_url,
+        usuario_id: h.usuario_id,
+        fecha_registro: h.fecha_registro,
+      })),
+    };
+  }
 
-                const cliente = await manager
-                    .getRepository(Client)
-                    .findOne({
-                        where: {
-                            id: dto.cliente_id,
-                        },
-                    });
+  async registrarAbono(dto: {
+    id_estado_cuenta: number;
+    monto_abono: number;
+    usuario_id: number;
+    metodo_pago?: string;
+    numero_operacion?: string;
+    fecha_pago?: string;
+    observacion?: string;
+    comprobante_url?: string;
+  }) {
+    if (!dto.id_estado_cuenta) {
+      throw new BadRequestException('id_estado_cuenta es requerido');
+    }
 
-                if (!cliente) {
-                    throw new NotFoundException(
-                        'Cliente no encontrado',
-                    );
-                }
+    if (!dto.usuario_id) {
+      throw new BadRequestException('usuario_id es requerido');
+    }
 
-                let montoDisponible =
-                    Number(dto.monto_abono);
+    const montoAbono = Number(dto.monto_abono);
 
-                const cuentas = await manager
-                    .getRepository(EstadoCuenta)
-                    .find({
-                        where: {
-                            cliente_id: dto.cliente_id,
-                            estado: In([
-                                EstadoCuentaEnum.PENDIENTE,
-                                EstadoCuentaEnum.PARCIAL,
-                            ]),
-                        },
-                        order: {
-                            fecha_registro: 'ASC',
-                        },
-                    });
+    if (!Number.isFinite(montoAbono) || montoAbono <= 0) {
+      throw new BadRequestException('El monto abonado debe ser mayor a 0');
+    }
 
-                if (!cuentas.length) {
-                    throw new BadRequestException(
-                        'El cliente no tiene deuda pendiente',
-                    );
-                }
+    return this.dataSource.transaction(async (manager) => {
+      const estadoCuentaRepo = manager.getRepository(EstadoCuenta);
+      const historialRepo = manager.getRepository(EstadoCuentaHistorial);
 
-                const abono = await manager
-                    .getRepository(Abono)
-                    .save({
-                        cliente_id: dto.cliente_id,
-                        monto_abono: dto.monto_abono,
-                        tipo_abono: dto.tipo_abono,
-                        moneda_abono: dto.moneda_abono,
+      const cuenta = await estadoCuentaRepo.findOne({
+        where: {
+          id: dto.id_estado_cuenta,
+        },
+        lock: {
+          mode: 'pessimistic_write',
+        },
+      });
 
-                        usuario_registro_id: userId,
-                    });
+      if (!cuenta) {
+        throw new NotFoundException('Estado de cuenta no encontrado');
+      }
 
-                const detallesAbono: AbonoDetalle[] = [];
+      if (cuenta.estado === EstadoCuentaEnum.PAGADO) {
+        throw new BadRequestException('La cuenta ya se encuentra pagada');
+      }
 
-                for (const cuenta of cuentas) {
+      const saldoAnterior = Number(cuenta.monto_saldo || 0);
 
-                    if (montoDisponible <= 0) {
-                        break;
-                    }
-
-                    const saldoAnterior =
-                        Number(cuenta.monto_saldo);
-
-                    let montoAplicado = 0;
-
-                    if (montoDisponible >= saldoAnterior) {
-
-                        montoAplicado = saldoAnterior;
-
-                        cuenta.monto_pago =
-                            Number(cuenta.monto_pago || 0)
-                            + saldoAnterior;
-
-                        cuenta.monto_saldo = 0;
-
-                        cuenta.estado =
-                            EstadoCuentaEnum.PAGADO;
-
-                        montoDisponible -= saldoAnterior;
-
-                    } else {
-
-                        montoAplicado = montoDisponible;
-
-                        cuenta.monto_pago =
-                            Number(cuenta.monto_pago || 0)
-                            + montoDisponible;
-
-                        cuenta.monto_saldo =
-                            saldoAnterior - montoDisponible;
-
-                        cuenta.estado =
-                            EstadoCuentaEnum.PARCIAL;
-
-                        montoDisponible = 0;
-                    }
-
-                    await manager
-                        .getRepository(EstadoCuenta)
-                        .save(cuenta);
-
-                    await manager
-                        .getRepository(EstadoCuentaHistorial)
-                        .save({
-                            id_estado_cuenta: cuenta.id,
-                            monto_abono: montoAplicado,
-                            saldo_anterior: saldoAnterior,
-                            saldo_nuevo: cuenta.monto_saldo,
-                            usuario_id: userId,
-                        });
-
-                    detallesAbono.push(
-                        manager
-                            .getRepository(AbonoDetalle)
-                            .create({
-                                id_abono: abono.id,
-                                id_estado_cuenta: cuenta.id,
-                                monto_aplicado: montoAplicado,
-                            }),
-                    );
-                }
-
-                if (detallesAbono.length > 0) {
-                    await manager
-                        .getRepository(AbonoDetalle)
-                        .save(detallesAbono);
-                }
-
-                /*
-                 * Si sobra dinero luego de cancelar todas las deudas,
-                 * registrar saldo a favor.
-                 */
-                if (montoDisponible > 0) {
-
-                    const saldoFavorExistente =
-                        await manager
-                            .getRepository(SaldoFavorCliente)
-                            .findOne({
-                                where: {
-                                    cliente_id: dto.cliente_id,
-                                },
-                            });
-
-                    if (saldoFavorExistente) {
-
-                        saldoFavorExistente.saldo =
-                            Number(saldoFavorExistente.saldo)
-                            + montoDisponible;
-
-                        await manager
-                            .getRepository(SaldoFavorCliente)
-                            .save(saldoFavorExistente);
-
-                    } else {
-
-                        await manager
-                            .getRepository(SaldoFavorCliente)
-                            .save({
-                                cliente_id: dto.cliente_id,
-                                saldo: montoDisponible,
-                                usuario_registro_id: userId,
-                            });
-                    }
-                }
-
-                return {
-                    ok: true,
-                    abonoId: abono.id,
-                    clienteId: dto.cliente_id,
-                    montoAbono: dto.monto_abono,
-                    montoAplicado:
-                        dto.monto_abono - montoDisponible,
-                    montoSobrante: montoDisponible,
-                    detallesAplicados:
-                        detallesAbono.length,
-                };
-            },
+      if (montoAbono > saldoAnterior) {
+        throw new BadRequestException(
+          `El abono no puede ser mayor al saldo pendiente. Saldo actual: ${saldoAnterior}`,
         );
-    }
+      }
+
+      const montoPagoAnterior = Number(cuenta.monto_pago || 0);
+      const nuevoMontoPago = Number((montoPagoAnterior + montoAbono).toFixed(2));
+      const saldoNuevo = Number((saldoAnterior - montoAbono).toFixed(2));
+
+      cuenta.monto_pago = nuevoMontoPago;
+      cuenta.monto_saldo = saldoNuevo;
+
+      if (saldoNuevo === 0) {
+        cuenta.estado = EstadoCuentaEnum.PAGADO;
+      } else {
+        cuenta.estado = EstadoCuentaEnum.PARCIAL;
+      }
+
+      const savedCuenta = await estadoCuentaRepo.save(cuenta);
+
+      const historial = historialRepo.create({
+        id_estado_cuenta: cuenta.id,
+        tipo_movimiento: TipoMovimientoCuentaEnum.PAGO,
+        monto_abono: montoAbono,
+        saldo_anterior: saldoAnterior,
+        saldo_nuevo: saldoNuevo,
+        metodo_pago: dto.metodo_pago ?? null,
+        numero_operacion: dto.numero_operacion ?? null,
+        fecha_pago: dto.fecha_pago ? new Date(dto.fecha_pago) : new Date(),
+        observacion: dto.observacion ?? null,
+        comprobante_url: dto.comprobante_url ?? null,
+        usuario_id: dto.usuario_id,
+      });
+
+      const savedHistorial = await historialRepo.save(historial);
+
+      return {
+        ok: true,
+        message: saldoNuevo === 0 ? 'Cuenta pagada completamente' : 'Pago registrado',
+        estadoCuenta: savedCuenta,
+        movimiento: savedHistorial,
+      };
+    });
+  }
 }

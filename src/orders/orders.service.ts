@@ -5,7 +5,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, In, Repository } from 'typeorm';
+import { Brackets, DataSource, In, Repository } from 'typeorm';
 
 import { CreateOrderDto } from './dto/CreateOrderDto';
 import { ListOrdersDto } from './dto/list-orders.dto';
@@ -22,6 +22,7 @@ import { OrderStatusEnum } from './dto/orderStatusEnum';
 import { DeliveryStatusEnum } from './dto/statusDelivered.dto';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { DASHBOARD_EVENTS } from '../dashCounter/dto/dashboard-events.constants';
+import { OrdersHistorial } from 'src/database/entities/orders-historial.entity';
 
 
 @Injectable()
@@ -64,35 +65,181 @@ export class OrdersService {
       throw new BadRequestException('Debe enviar referencia de pago');
     }
 
+    if (
+      isDropshipping &&
+      (!dto.customer_name || !dto.customer_phone || !dto.customer_address)
+    ) {
+      throw new BadRequestException(
+        'Datos del cliente son obligatorios en dropshipping',
+      );
+    }
+
     const result = await this.dataSource.transaction(async (manager) => {
       const orderRepo = manager.getRepository(Order);
       const detailRepo = manager.getRepository(OrderDetail);
       const stockRepo = manager.getRepository(Stock);
       const reservationRepo = manager.getRepository(StockReservation);
       const productRepo = manager.getRepository(Product);
+      const historialRepo = manager.getRepository(OrdersHistorial);
 
-      // AGRUPAR ITEMS
-      const groupedItems = new Map<string, any>();
+      const groupedMap = new Map<
+        string,
+        {
+          product_id: number;
+          product_size_id: number | null;
+          size: string;
+          quantity: number;
+          unit_price: number;
+        }
+      >();
 
-      for (const it of dto.items) {
-        const key = `${it.product_id}|${it.product_size_id ?? null}`;
+      for (const item of dto.items) {
+        const productId = Number(item.product_id);
+        const productSizeId =
+          item.product_size_id === null || item.product_size_id === undefined
+            ? null
+            : Number(item.product_size_id);
 
-        if (!groupedItems.has(key)) {
-          groupedItems.set(key, { ...it });
+        const quantity = Number(item.quantity);
+        const unitPrice = Number(item.unit_price);
+
+        if (!Number.isFinite(productId) || productId <= 0) {
+          throw new BadRequestException('product_id inválido');
+        }
+
+        if (!Number.isFinite(quantity) || quantity <= 0) {
+          throw new BadRequestException('quantity inválido');
+        }
+
+        if (!Number.isFinite(unitPrice) || unitPrice < 0) {
+          throw new BadRequestException('unit_price inválido');
+        }
+
+        const key = `${productId}|${productSizeId ?? 'null'}`;
+
+        if (!groupedMap.has(key)) {
+          groupedMap.set(key, {
+            product_id: productId,
+            product_size_id: productSizeId,
+            size: item.size,
+            quantity,
+            unit_price: unitPrice,
+          });
         } else {
-          groupedItems.get(key).quantity += it.quantity;
+          const current = groupedMap.get(key)!;
+          current.quantity = Number((current.quantity + quantity).toFixed(2));
         }
       }
 
-      const items = Array.from(groupedItems.values());
+      const items = Array.from(groupedMap.values());
+      const productIds = [...new Set(items.map((i) => i.product_id))];
+
       const lastOrder = await orderRepo.findOne({
-        where: {}, // 👈 obligatorio
+        where: {},
         order: { id: 'DESC' },
       });
 
       const nextProforma = (lastOrder?.proforma_number ?? 0) + 1;
 
-      // CREAR ORDEN
+      const products = await productRepo.find({
+        where: {
+          id: In(productIds),
+        },
+      });
+
+      const productMap = new Map(products.map((p) => [p.id, p]));
+
+      for (const item of items) {
+        if (!productMap.has(item.product_id)) {
+          throw new BadRequestException(
+            `Producto ID ${item.product_id} no existe`,
+          );
+        }
+      }
+
+      const stocks = await stockRepo
+        .createQueryBuilder('s')
+        .where('s.warehouse_id = :warehouseId', {
+          warehouseId: dto.warehouse_id,
+        })
+        .andWhere(
+          new Brackets((qb) => {
+            items.forEach((item, index) => {
+              qb.orWhere(
+                `(s.product_id = :productId${index} AND s.product_size_id ${item.product_size_id === null
+                  ? 'IS NULL'
+                  : `= :productSizeId${index}`
+                })`,
+                {
+                  [`productId${index}`]: item.product_id,
+                  [`productSizeId${index}`]: item.product_size_id,
+                },
+              );
+            });
+          }),
+        )
+        .setLock('pessimistic_write')
+        .getMany();
+
+      const stockMap = new Map<string, Stock>();
+
+      for (const stock of stocks) {
+        const key = `${stock.product_id}|${stock.product_size_id ?? 'null'}`;
+        stockMap.set(key, stock);
+      }
+
+      const reservedRows = !isDropshipping
+        ? await reservationRepo
+          .createQueryBuilder('r')
+          .select('r.product_id', 'product_id')
+          .addSelect('r.product_size_id', 'product_size_id')
+          .addSelect('COALESCE(SUM(r.quantity),0)', 'reserved_qty')
+          .where('r.warehouse_id = :warehouseId', {
+            warehouseId: dto.warehouse_id,
+          })
+          .andWhere('r.product_id IN (:...productIds)', { productIds })
+          .andWhere('r.status = :status', {
+            status: StockReservationStatus.RESERVADO,
+          })
+          .groupBy('r.product_id')
+          .addGroupBy('r.product_size_id')
+          .getRawMany()
+        : [];
+
+      const reservedMap = new Map<string, number>();
+
+      for (const row of reservedRows) {
+        const key = `${Number(row.product_id)}|${row.product_size_id === null || row.product_size_id === undefined
+          ? 'null'
+          : Number(row.product_size_id)
+          }`;
+
+        reservedMap.set(key, Number(row.reserved_qty ?? 0));
+      }
+
+      for (const item of items) {
+        const key = `${item.product_id}|${item.product_size_id ?? 'null'}`;
+        const stock = stockMap.get(key);
+
+        if (!stock) {
+          throw new BadRequestException(
+            `No hay stock para product_id=${item.product_id}, talla=${item.size}`,
+          );
+        }
+
+        let available = Number(stock.quantity);
+
+        if (!isDropshipping) {
+          available -= Number(reservedMap.get(key) ?? 0);
+        }
+
+        if (available < item.quantity) {
+          throw new BadRequestException(
+            `Stock insuficiente para producto ID ${item.product_id}, talla ${item.size}. Disponible: ${available}, requerido: ${item.quantity}`,
+          );
+        }
+      }
+
       const order = orderRepo.create({
         proforma_number: nextProforma,
         client_id: dto.client_id,
@@ -103,126 +250,84 @@ export class OrdersService {
 
         payment_status: isDropshipping ? 'PAGADO' : 'PENDIENTE',
         payment_reference: dto.payment_reference ?? null,
+        payment_method: dto.payment_method ?? null,
 
         customer_name: dto.customer_name ?? null,
         customer_phone: dto.customer_phone ?? null,
         customer_address: dto.customer_address ?? null,
         customer_reference: dto.customer_reference ?? null,
 
+        is_dropshipping: isDropshipping,
+
         order_status_id: isDropshipping
           ? OrderStatusEnum.APROBADO
           : OrderStatusEnum.PENDIENTE,
 
         approval_date: isDropshipping ? new Date() : null,
+        approved_by: isDropshipping ? dto.user_id : null,
       } as Partial<Order>);
 
       const savedOrder = await orderRepo.save(order as Order);
 
-      const productIds = items.map((i) => i.product_id);
+      const detailsToSave = items.map((item) => {
+        const product = productMap.get(item.product_id)!;
 
-      const products = await productRepo.find({
-        where: { id: In(productIds) },
+        const factoryPrice = Number(product.factory_price ?? 0);
+        const totalAmount = Number((item.quantity * item.unit_price).toFixed(2));
+        const costTotal = Number((item.quantity * factoryPrice).toFixed(2));
+        const profitAmount = Number((totalAmount - costTotal).toFixed(2));
+
+        return detailRepo.create({
+          order_id: savedOrder.id,
+          product_id: item.product_id,
+          product_size_id: item.product_size_id,
+          size: item.size,
+          quantity: item.quantity,
+          unit_price: item.unit_price,
+
+          factory_price_at_order: factoryPrice,
+
+          total_amount: totalAmount,
+          cost_total_at_order: costTotal,
+          profit_amount_at_order: profitAmount,
+
+          article_code_at_order: product.article_code ?? null,
+          article_description_at_order: product.article_description ?? null,
+          brand_name_at_order: product.brand_name ?? null,
+          model_code_at_order: product.model_code ?? null,
+          color_at_order: product.color ?? null,
+        } as Partial<OrderDetail>);
       });
 
-      const prodMap = new Map(products.map((p) => [p.id, p]));
+      await detailRepo.save(detailsToSave);
 
-      const stocks = await stockRepo.find({
-        where: {
+      const reservationsToSave = items.map((item) =>
+        reservationRepo.create({
+          order_id: savedOrder.id,
           warehouse_id: dto.warehouse_id,
-          product_id: In(productIds),
-        },
-      });
-
-      const stockMap = new Map(
-        stocks.map((s) => [`${s.product_id}|${s.product_size_id ?? null}`, s]),
+          product_id: item.product_id,
+          product_size_id: item.product_size_id,
+          quantity: item.quantity,
+          status: isDropshipping
+            ? StockReservationStatus.DIRECTO
+            : StockReservationStatus.RESERVADO,
+          created_by: dto.user_id,
+        }),
       );
 
-      for (const it of items) {
-        const product = prodMap.get(it.product_id);
-        if (!product) throw new BadRequestException('Producto no existe');
+      await reservationRepo.save(reservationsToSave);
 
-        const key = `${it.product_id}|${it.product_size_id ?? null}`;
-        const stock = stockMap.get(key);
-
-        if (!stock) throw new BadRequestException('No hay stock');
-
-        await stockRepo.findOne({
-          where: { id: stock.id } as any,
-          lock: { mode: 'pessimistic_write' },
-        });
-
-        // VALIDAR DISPONIBLE (sin reservas en dropshipping)
-        let available = Number(stock.quantity);
-
-        if (!isDropshipping) {
-          const reservedAgg = await reservationRepo
-            .createQueryBuilder('r')
-            .select('COALESCE(SUM(r.quantity),0)', 'qty')
-            .where('r.product_id = :p', { p: it.product_id })
-            .andWhere(
-              it.product_size_id
-                ? 'r.product_size_id = :ps'
-                : 'r.product_size_id IS NULL',
-              { ps: it.product_size_id }
-            )
-            .andWhere('r.status = :st', {
-              st: StockReservationStatus.RESERVADO,
-            })
-            .getRawOne();
-
-          const reserved = Number(reservedAgg?.qty ?? 0);
-          available -= reserved;
-        }
-
-        if (available < it.quantity) {
-          throw new BadRequestException('Stock insuficiente');
-        }
-
-        // DETALLE
-        await detailRepo.save({
-          order_id: savedOrder.id,
-          product_id: it.product_id,
-          product_size_id: it.product_size_id ?? null,
-          size: it.size,
-          quantity: it.quantity,
-          unit_price: it.unit_price,
-          total_amount: it.quantity * Number(it.unit_price),
-        });
-
-        // RESERVA SOLO NORMAL
-        if (!isDropshipping) {
-          await reservationRepo.save({
-            order_id: savedOrder.id,
-            warehouse_id: dto.warehouse_id,
-            product_id: it.product_id,
-            product_size_id: it.product_size_id ?? null,
-            quantity: it.quantity,
-            status: StockReservationStatus.RESERVADO,
-            created_by: dto.user_id,
-          });
-        }
-
-        if (isDropshipping) {
-          if (!dto.customer_name || !dto.customer_phone || !dto.customer_address) {
-            throw new BadRequestException('Datos del cliente son obligatorios en dropshipping');
-          }
-          await reservationRepo.save({
-
-
-            order_id: savedOrder.id,
-            warehouse_id: dto.warehouse_id,
-            product_id: it.product_id,
-            product_size_id: it.product_size_id ?? null,
-            quantity: it.quantity,
-            status: StockReservationStatus.DIRECTO, // 🔥
-            created_by: dto.user_id,
-          });
-        }
-      }
+      await historialRepo.save(
+        historialRepo.create({
+          id_pedido: savedOrder.id,
+          estado_anterior: null,
+          estado_nuevo: isDropshipping ? 'APROBADO' : 'PENDIENTE',
+          usuario_id: dto.user_id,
+          observacion: 'Pedido registrado',
+        }),
+      );
 
       return { order: savedOrder };
-
-
     });
 
     this.eventEmitter.emit('order.created', {
@@ -232,26 +337,52 @@ export class OrdersService {
     });
 
     return result;
-
   }
 
   /* ============================================================
      APROBAR PEDIDO
      ============================================================ */
   async approveOrder(orderId: number, approvedBy: number) {
-    const order = await this.orderRepo.findOne({ where: { id: orderId } });
+    return this.dataSource.transaction(async (manager) => {
+      const orderRepo = manager.getRepository(Order);
+      const historialRepo = manager.getRepository(OrdersHistorial);
 
-    if (!order) throw new NotFoundException('Pedido no encontrado');
+      const order = await orderRepo.findOne({
+        where: { id: orderId },
+        lock: { mode: 'pessimistic_write' },
+      });
 
-    if (order.order_status_id !== OrderStatusEnum.PENDIENTE) {
-      throw new BadRequestException('Solo pedidos pendientes pueden aprobarse');
-    }
-    order.order_status_id = OrderStatusEnum.APROBADO; // APROBADO
-    order.approved_by = approvedBy;
-    order.approval_date = new Date();
+      if (!order) {
+        throw new NotFoundException('Pedido no encontrado');
+      }
 
-    await this.orderRepo.save(order);
-    return { ok: true, order };
+      if (order.order_status_id !== OrderStatusEnum.PENDIENTE) {
+        throw new BadRequestException('Solo pedidos pendientes pueden aprobarse');
+      }
+
+      const estadoAnterior = String(order.order_status_id);
+
+      order.order_status_id = OrderStatusEnum.APROBADO;
+      order.approved_by = approvedBy;
+      order.approval_date = new Date();
+
+      const savedOrder = await orderRepo.save(order);
+
+      await historialRepo.save(
+        historialRepo.create({
+          id_pedido: order.id,
+          estado_anterior: estadoAnterior,
+          estado_nuevo: String(OrderStatusEnum.APROBADO),
+          usuario_id: approvedBy,
+          observacion: 'Pedido aprobado',
+        }),
+      );
+
+      return {
+        ok: true,
+        order: savedOrder,
+      };
+    });
   }
 
   /* ============================================================
@@ -261,13 +392,22 @@ export class OrdersService {
     return this.dataSource.transaction(async (manager) => {
       const orderRepo = manager.getRepository(Order);
       const reservationRepo = manager.getRepository(StockReservation);
+      const historialRepo = manager.getRepository(OrdersHistorial);
 
-      const order = await orderRepo.findOne({ where: { id: orderId } });
-      if (!order) throw new NotFoundException('Pedido no encontrado');
+      const order = await orderRepo.findOne({
+        where: { id: orderId },
+        lock: { mode: 'pessimistic_write' },
+      });
+
+      if (!order) {
+        throw new NotFoundException('Pedido no encontrado');
+      }
 
       if (order.order_status_id !== OrderStatusEnum.PENDIENTE) {
         throw new BadRequestException('Solo pedidos pendientes pueden rechazarse');
       }
+
+      const estadoAnterior = String(order.order_status_id);
 
       await reservationRepo.update(
         {
@@ -279,11 +419,25 @@ export class OrdersService {
         },
       );
 
-      order.order_status_id = OrderStatusEnum.RECHAZADO; // RECHAZADO
+      order.order_status_id = OrderStatusEnum.RECHAZADO;
       order.observations = reason ?? order.observations;
-      await orderRepo.save(order);
 
-      return { ok: true };
+      const savedOrder = await orderRepo.save(order);
+
+      await historialRepo.save(
+        historialRepo.create({
+          id_pedido: order.id,
+          estado_anterior: estadoAnterior,
+          estado_nuevo: String(OrderStatusEnum.RECHAZADO),
+          usuario_id: rejectedBy,
+          observacion: reason ?? 'Pedido rechazado',
+        }),
+      );
+
+      return {
+        ok: true,
+        order: savedOrder,
+      };
     });
   }
 
@@ -509,489 +663,515 @@ export class OrdersService {
 
 
   async markAsDelivered(orderId: number, userId: number, notes?: string) {
-    const order = await this.orderRepo.findOne({ where: { id: orderId } });
+    return this.dataSource.transaction(async (manager) => {
+      const orderRepo = manager.getRepository(Order);
+      const historialRepo = manager.getRepository(OrdersHistorial);
 
-    if (!order) throw new NotFoundException('Pedido no encontrado');
+      const order = await orderRepo.findOne({
+        where: { id: orderId },
+        lock: { mode: 'pessimistic_write' },
+      });
 
-    if (order.order_status_id !== OrderStatusEnum.DESPACHADO) {
-      throw new BadRequestException('Solo pedidos despachados pueden cerrarse');
-    }
+      if (!order) {
+        throw new NotFoundException('Pedido no encontrado');
+      }
 
-    order.order_status_id = OrderStatusEnum.CERRADO;
-    order.delivered_at = new Date();
+      if (order.order_status_id !== OrderStatusEnum.DESPACHADO) {
+        throw new BadRequestException('Solo pedidos despachados pueden cerrarse');
+      }
 
-    order.delivered_by = userId;
-    order.delivery_status = DeliveryStatusEnum.ENTREGADO;
-    order.delivery_notes = notes ?? '';
+      const estadoAnterior = String(order.order_status_id);
 
-    await this.orderRepo.save(order);
+      order.order_status_id = OrderStatusEnum.CERRADO;
+      order.delivered_at = new Date();
+      order.delivered_by = userId;
+      order.delivery_status = DeliveryStatusEnum.ENTREGADO;
+      order.delivery_notes = notes ?? '';
 
-    return { ok: true };
+      const savedOrder = await orderRepo.save(order);
+
+      await historialRepo.save(
+        historialRepo.create({
+          id_pedido: order.id,
+          estado_anterior: estadoAnterior,
+          estado_nuevo: String(OrderStatusEnum.CERRADO),
+          usuario_id: userId,
+          observacion: notes ?? 'Pedido entregado',
+        }),
+      );
+
+      return {
+        ok: true,
+        order: savedOrder,
+      };
+    });
   }
 
   async getSalesReport(dto: {
-  fecha_inicio?: string;
-  fecha_fin?: string;
-  vendedor_id?: number;
-}) {
-  const qb = this.orderRepo
-    .createQueryBuilder('o')
-    .leftJoinAndSelect('o.user', 'u')
-    .leftJoinAndSelect('o.client', 'c')
-    .leftJoinAndSelect('o.details', 'd')
-    .leftJoinAndSelect('d.product', 'p')
-    .where('1 = 1');
+    fecha_inicio?: string;
+    fecha_fin?: string;
+    vendedor_id?: number;
+  }) {
+    const qb = this.orderRepo
+      .createQueryBuilder('o')
+      .leftJoinAndSelect('o.user', 'u')
+      .leftJoinAndSelect('o.client', 'c')
+      .leftJoinAndSelect('o.details', 'd')
+      .leftJoinAndSelect('d.product', 'p')
+      .where('1 = 1');
 
-  if (dto.fecha_inicio) {
-    qb.andWhere('DATE(o.request_date) >= :fecha_inicio', {
-      fecha_inicio: dto.fecha_inicio,
-    });
-  }
-
-  if (dto.fecha_fin) {
-    qb.andWhere('DATE(o.request_date) <= :fecha_fin', {
-      fecha_fin: dto.fecha_fin,
-    });
-  }
-
-  if (dto.vendedor_id) {
-    qb.andWhere('o.user_id = :vendedor_id', {
-      vendedor_id: dto.vendedor_id,
-    });
-  }
-
-  qb.orderBy('o.request_date', 'DESC');
-
-  const orders = await qb.getMany();
-
-  const resumenGeneral = {
-    total_pedidos: 0,
-    pedidos_pendientes: 0,
-    pedidos_aprobados: 0,
-    pedidos_despachados: 0,
-    pedidos_entregados: 0,
-    pedidos_cancelados: 0,
-
-    total_importe_registrado: 0,
-    total_importe_vendido: 0,
-    total_importe_pendiente: 0,
-    total_importe_devuelto: 0,
-
-    total_costo_compra: 0,
-    total_utilidad: 0,
-    margen_utilidad_porcentaje: 0,
-
-    total_pares_registrados: 0,
-    total_pares_vendidos: 0,
-    total_pares_pendientes: 0,
-    total_pares_devueltos: 0,
-  };
-
-  const vendedoresMap = new Map<number, any>();
-  const productosMap = new Map<number, any>();
-  const tallasMap = new Map<string, any>();
-
- const detalleVentas: any[] = [];
-
-  const getEstadoPedido = (statusId: number) => {
-    switch (statusId) {
-      case OrderStatusEnum.PENDIENTE:
-        return 'PENDIENTE';
-      case OrderStatusEnum.APROBADO:
-        return 'APROBADO';
-      case OrderStatusEnum.DESPACHADO:
-        return 'DESPACHADO';
-      case OrderStatusEnum.CERRADO:
-        return 'ENTREGADO';
-      case OrderStatusEnum.RECHAZADO:
-        return 'CANCELADO';
-      default:
-        return 'OTRO';
+    if (dto.fecha_inicio) {
+      qb.andWhere('DATE(o.request_date) >= :fecha_inicio', {
+        fecha_inicio: dto.fecha_inicio,
+      });
     }
-  };
 
-  for (const order of orders) {
-    const estadoPedido = getEstadoPedido(order.order_status_id);
+    if (dto.fecha_fin) {
+      qb.andWhere('DATE(o.request_date) <= :fecha_fin', {
+        fecha_fin: dto.fecha_fin,
+      });
+    }
 
-    let totalImporteRegistrado = 0;
-    let totalImporteVendido = 0;
-    let totalImportePendiente = 0;
-    let totalImporteDevuelto = 0;
+    if (dto.vendedor_id) {
+      qb.andWhere('o.user_id = :vendedor_id', {
+        vendedor_id: dto.vendedor_id,
+      });
+    }
 
-    let totalCostoCompra = 0;
-    let totalUtilidad = 0;
+    qb.orderBy('o.request_date', 'DESC');
 
-    let totalParesRegistrados = 0;
-    let totalParesVendidos = 0;
-    let totalParesPendientes = 0;
-    let totalParesDevueltos = 0;
+    const orders = await qb.getMany();
 
-    const detalles: any[] = [];
+    const resumenGeneral = {
+      total_pedidos: 0,
+      pedidos_pendientes: 0,
+      pedidos_aprobados: 0,
+      pedidos_despachados: 0,
+      pedidos_entregados: 0,
+      pedidos_cancelados: 0,
 
-    for (const d of order.details || []) {
-      const cantidad = Number(d.quantity || 0);
-      const precioVenta = Number(d.unit_price || 0);
+      total_importe_registrado: 0,
+      total_importe_vendido: 0,
+      total_importe_pendiente: 0,
+      total_importe_devuelto: 0,
 
-  
-      const precioCompra = Number(d.product?.factory_price || 0);
+      total_costo_compra: 0,
+      total_utilidad: 0,
+      margen_utilidad_porcentaje: 0,
 
-      const subtotalRegistrado = cantidad * precioVenta;
-      const costoCompraTotal = cantidad * precioCompra;
+      total_pares_registrados: 0,
+      total_pares_vendidos: 0,
+      total_pares_pendientes: 0,
+      total_pares_devueltos: 0,
+    };
 
-      const esVendido = estadoPedido === 'DESPACHADO';
-      const esPendiente = ['PENDIENTE', 'APROBADO', 'DESPACHADO'].includes(estadoPedido);
-      const esDevuelto = estadoPedido === 'CANCELADO';
+    const vendedoresMap = new Map<number, any>();
+    const productosMap = new Map<number, any>();
+    const tallasMap = new Map<string, any>();
 
-      const importeFinal = esVendido ? subtotalRegistrado : 0;
-      const utilidad = esVendido ? importeFinal - costoCompraTotal : 0;
+    const detalleVentas: any[] = [];
 
-      totalImporteRegistrado += subtotalRegistrado;
-      totalParesRegistrados += cantidad;
-
-      if (esVendido) {
-        totalImporteVendido += subtotalRegistrado;
-        totalCostoCompra += costoCompraTotal;
-        totalUtilidad += utilidad;
-        totalParesVendidos += cantidad;
+    const getEstadoPedido = (statusId: number) => {
+      switch (statusId) {
+        case OrderStatusEnum.PENDIENTE:
+          return 'PENDIENTE';
+        case OrderStatusEnum.APROBADO:
+          return 'APROBADO';
+        case OrderStatusEnum.DESPACHADO:
+          return 'DESPACHADO';
+        case OrderStatusEnum.CERRADO:
+          return 'ENTREGADO';
+        case OrderStatusEnum.RECHAZADO:
+          return 'CANCELADO';
+        default:
+          return 'OTRO';
       }
+    };
 
-      if (esPendiente) {
-        totalImportePendiente += subtotalRegistrado;
-        totalParesPendientes += cantidad;
-      }
+    for (const order of orders) {
+      const estadoPedido = getEstadoPedido(order.order_status_id);
 
-      if (esDevuelto) {
-        totalImporteDevuelto += subtotalRegistrado;
-        totalParesDevueltos += cantidad;
-      }
+      let totalImporteRegistrado = 0;
+      let totalImporteVendido = 0;
+      let totalImportePendiente = 0;
+      let totalImporteDevuelto = 0;
 
-      const detalle = {
-        detalle_id: d.id,
-        estado_detalle: esDevuelto ? 'DEVUELTO' : esVendido ? 'VENDIDO' : 'PENDIENTE',
+      let totalCostoCompra = 0;
+      let totalUtilidad = 0;
 
-        product_id: d.product_id,
-        product_size_id: d.product_size_id,
+      let totalParesRegistrados = 0;
+      let totalParesVendidos = 0;
+      let totalParesPendientes = 0;
+      let totalParesDevueltos = 0;
 
-        article_code: d.product?.article_code ?? '',
-        article_description: d.product?.article_description ?? '',
-        brand_name: (d.product as any)?.brand_name ?? '',
-        model_code: (d.product as any)?.model_code ?? '',
-        color: (d.product as any)?.color ?? '',
+      const detalles: any[] = [];
 
-        talla: d.size,
-        cantidad_pares: cantidad,
+      for (const d of order.details || []) {
+        const cantidad = Number(d.quantity || 0);
+        const precioVenta = Number(d.unit_price || 0);
 
-        precio_compra_unitario: precioCompra,
-        precio_venta_unitario: precioVenta,
 
-        subtotal_registrado: subtotalRegistrado,
-        importe_final: importeFinal,
-        costo_compra_total: esVendido ? costoCompraTotal : 0,
-        utilidad,
-        margen_utilidad_porcentaje:
-          importeFinal > 0 ? Number(((utilidad / importeFinal) * 100).toFixed(2)) : 0,
+        const precioCompra = Number(
+          d.factory_price_at_order ?? d.product?.factory_price ?? 0,
+        );
 
-        vendido: esVendido,
-        pendiente: esPendiente,
-        devuelto: esDevuelto,
-      };
+        const subtotalRegistrado = cantidad * precioVenta;
+        const costoCompraTotal = cantidad * precioCompra;
 
-      detalles.push(detalle);
+        const esVendido = estadoPedido === 'DESPACHADO';
+        const esPendiente = ['PENDIENTE', 'APROBADO', 'DESPACHADO'].includes(estadoPedido);
+        const esDevuelto = estadoPedido === 'CANCELADO';
 
-      // ========================
-      // AGRUPADO POR PRODUCTO
-      // ========================
-      if (!productosMap.has(d.product_id)) {
-        productosMap.set(d.product_id, {
+        const importeFinal = esVendido ? subtotalRegistrado : 0;
+        const utilidad = esVendido ? importeFinal - costoCompraTotal : 0;
+
+        totalImporteRegistrado += subtotalRegistrado;
+        totalParesRegistrados += cantidad;
+
+        if (esVendido) {
+          totalImporteVendido += subtotalRegistrado;
+          totalCostoCompra += costoCompraTotal;
+          totalUtilidad += utilidad;
+          totalParesVendidos += cantidad;
+        }
+
+        if (esPendiente) {
+          totalImportePendiente += subtotalRegistrado;
+          totalParesPendientes += cantidad;
+        }
+
+        if (esDevuelto) {
+          totalImporteDevuelto += subtotalRegistrado;
+          totalParesDevueltos += cantidad;
+        }
+
+        const detalle = {
+          detalle_id: d.id,
+          estado_detalle: esDevuelto ? 'DEVUELTO' : esVendido ? 'VENDIDO' : 'PENDIENTE',
+
           product_id: d.product_id,
+          product_size_id: d.product_size_id,
+
           article_code: d.product?.article_code ?? '',
           article_description: d.product?.article_description ?? '',
           brand_name: (d.product as any)?.brand_name ?? '',
           model_code: (d.product as any)?.model_code ?? '',
           color: (d.product as any)?.color ?? '',
 
-          precio_compra_unitario: precioCompra,
-          precio_venta_promedio: 0,
-
-          total_pares_registrados: 0,
-          total_pares_vendidos: 0,
-          total_pares_pendientes: 0,
-          total_pares_devueltos: 0,
-
-          total_importe_vendido: 0,
-          total_costo_compra: 0,
-          total_utilidad: 0,
-          margen_utilidad_porcentaje: 0,
-
-          tallas: [],
-          _sumaPrecioVenta: 0,
-          _cantidadVentas: 0,
-        });
-      }
-
-      const productoAgg = productosMap.get(d.product_id);
-
-      productoAgg.total_pares_registrados += cantidad;
-      productoAgg.total_pares_vendidos += esVendido ? cantidad : 0;
-      productoAgg.total_pares_pendientes += esPendiente ? cantidad : 0;
-      productoAgg.total_pares_devueltos += esDevuelto ? cantidad : 0;
-      productoAgg.total_importe_vendido += importeFinal;
-      productoAgg.total_costo_compra += esVendido ? costoCompraTotal : 0;
-      productoAgg.total_utilidad += utilidad;
-
-      if (esVendido) {
-        productoAgg._sumaPrecioVenta += precioVenta;
-        productoAgg._cantidadVentas += 1;
-      }
-
-      let tallaAgg = productoAgg.tallas.find((t) => t.talla === d.size);
-
-      if (!tallaAgg) {
-        tallaAgg = {
           talla: d.size,
-          total_pares_registrados: 0,
-          total_pares_vendidos: 0,
-          total_pares_pendientes: 0,
-          total_pares_devueltos: 0,
-          total_importe_vendido: 0,
-          total_utilidad: 0,
+          cantidad_pares: cantidad,
+
+          precio_compra_unitario: precioCompra,
+          precio_venta_unitario: precioVenta,
+
+          subtotal_registrado: subtotalRegistrado,
+          importe_final: importeFinal,
+          costo_compra_total: esVendido ? costoCompraTotal : 0,
+          utilidad,
+          margen_utilidad_porcentaje:
+            importeFinal > 0 ? Number(((utilidad / importeFinal) * 100).toFixed(2)) : 0,
+
+          vendido: esVendido,
+          pendiente: esPendiente,
+          devuelto: esDevuelto,
         };
 
-        productoAgg.tallas.push(tallaAgg);
+        detalles.push(detalle);
+
+        // ========================
+        // AGRUPADO POR PRODUCTO
+        // ========================
+        if (!productosMap.has(d.product_id)) {
+          productosMap.set(d.product_id, {
+            product_id: d.product_id,
+            article_code: d.product?.article_code ?? '',
+            article_description: d.product?.article_description ?? '',
+            brand_name: (d.product as any)?.brand_name ?? '',
+            model_code: (d.product as any)?.model_code ?? '',
+            color: (d.product as any)?.color ?? '',
+
+            precio_compra_unitario: precioCompra,
+            precio_venta_promedio: 0,
+
+            total_pares_registrados: 0,
+            total_pares_vendidos: 0,
+            total_pares_pendientes: 0,
+            total_pares_devueltos: 0,
+
+            total_importe_vendido: 0,
+            total_costo_compra: 0,
+            total_utilidad: 0,
+            margen_utilidad_porcentaje: 0,
+
+            tallas: [],
+            _sumaPrecioVenta: 0,
+            _cantidadVentas: 0,
+          });
+        }
+
+        const productoAgg = productosMap.get(d.product_id);
+
+        productoAgg.total_pares_registrados += cantidad;
+        productoAgg.total_pares_vendidos += esVendido ? cantidad : 0;
+        productoAgg.total_pares_pendientes += esPendiente ? cantidad : 0;
+        productoAgg.total_pares_devueltos += esDevuelto ? cantidad : 0;
+        productoAgg.total_importe_vendido += importeFinal;
+        productoAgg.total_costo_compra += esVendido ? costoCompraTotal : 0;
+        productoAgg.total_utilidad += utilidad;
+
+        if (esVendido) {
+          productoAgg._sumaPrecioVenta += precioVenta;
+          productoAgg._cantidadVentas += 1;
+        }
+
+        let tallaAgg = productoAgg.tallas.find((t) => t.talla === d.size);
+
+        if (!tallaAgg) {
+          tallaAgg = {
+            talla: d.size,
+            total_pares_registrados: 0,
+            total_pares_vendidos: 0,
+            total_pares_pendientes: 0,
+            total_pares_devueltos: 0,
+            total_importe_vendido: 0,
+            total_utilidad: 0,
+          };
+
+          productoAgg.tallas.push(tallaAgg);
+        }
+
+        tallaAgg.total_pares_registrados += cantidad;
+        tallaAgg.total_pares_vendidos += esVendido ? cantidad : 0;
+        tallaAgg.total_pares_pendientes += esPendiente ? cantidad : 0;
+        tallaAgg.total_pares_devueltos += esDevuelto ? cantidad : 0;
+        tallaAgg.total_importe_vendido += importeFinal;
+        tallaAgg.total_utilidad += utilidad;
+
+        // ========================
+        // AGRUPADO GLOBAL POR TALLA
+        // ========================
+        const tallaKey = String(d.size ?? 'SIN TALLA');
+
+        if (!tallasMap.has(tallaKey)) {
+          tallasMap.set(tallaKey, {
+            talla: tallaKey,
+            total_pares_registrados: 0,
+            total_pares_vendidos: 0,
+            total_pares_pendientes: 0,
+            total_pares_devueltos: 0,
+            total_importe_vendido: 0,
+            total_utilidad: 0,
+          });
+        }
+
+        const tallaGlobal = tallasMap.get(tallaKey);
+
+        tallaGlobal.total_pares_registrados += cantidad;
+        tallaGlobal.total_pares_vendidos += esVendido ? cantidad : 0;
+        tallaGlobal.total_pares_pendientes += esPendiente ? cantidad : 0;
+        tallaGlobal.total_pares_devueltos += esDevuelto ? cantidad : 0;
+        tallaGlobal.total_importe_vendido += importeFinal;
+        tallaGlobal.total_utilidad += utilidad;
       }
 
-      tallaAgg.total_pares_registrados += cantidad;
-      tallaAgg.total_pares_vendidos += esVendido ? cantidad : 0;
-      tallaAgg.total_pares_pendientes += esPendiente ? cantidad : 0;
-      tallaAgg.total_pares_devueltos += esDevuelto ? cantidad : 0;
-      tallaAgg.total_importe_vendido += importeFinal;
-      tallaAgg.total_utilidad += utilidad;
+      const resumenVenta = {
+        total_importe_registrado: totalImporteRegistrado,
+        total_importe_vendido: totalImporteVendido,
+        total_importe_pendiente: totalImportePendiente,
+        total_importe_devuelto: totalImporteDevuelto,
+
+        total_costo_compra: totalCostoCompra,
+        total_utilidad: totalUtilidad,
+        margen_utilidad_porcentaje:
+          totalImporteVendido > 0
+            ? Number(((totalUtilidad / totalImporteVendido) * 100).toFixed(2))
+            : 0,
+
+        total_pares_registrados: totalParesRegistrados,
+        total_pares_vendidos: totalParesVendidos,
+        total_pares_pendientes: totalParesPendientes,
+        total_pares_devueltos: totalParesDevueltos,
+      };
+
+      const ventaMapeada = {
+        sale_id: order.id,
+        ticket: `GUIA-${String(order.id).padStart(6, '0')}`,
+        fecha_registro: order.request_date,
+        estado_pedido: estadoPedido,
+
+        cliente: {
+          nombre: order.customer_name ?? order.client?.business_name ?? '',
+          dni: order.client?.document_number ?? '',
+          telefono: order.customer_phone ?? '',
+          direccion: order.customer_address ?? order.client?.address ?? '',
+          departamento: '',
+          provincia: '',
+          distrito: '',
+          referencia: order.customer_reference ?? '',
+        },
+
+        vendedor: {
+          id: order.user?.id,
+          nombre: order.user?.full_name ?? '',
+          email: order.user?.email ?? '',
+          rol: (order.user as any)?.role?.name ?? '',
+        },
+
+        pago: {
+          metodo_pago: order.payment_method ?? '',
+          total_pedido_actual: totalImporteVendido,
+          estado_pago: order.payment_status,
+          referencia_pago: order.payment_reference,
+        },
+
+        envio: {
+          es_agencia: false,
+          agencia: null,
+          codigo_envio: null,
+        },
+
+        resumen_venta: resumenVenta,
+        detalles,
+      };
+
+      detalleVentas.push(ventaMapeada);
 
       // ========================
-      // AGRUPADO GLOBAL POR TALLA
+      // RESUMEN GENERAL
       // ========================
-      const tallaKey = String(d.size ?? 'SIN TALLA');
+      resumenGeneral.total_pedidos += 1;
 
-      if (!tallasMap.has(tallaKey)) {
-        tallasMap.set(tallaKey, {
-          talla: tallaKey,
+      if (estadoPedido === 'PENDIENTE') resumenGeneral.pedidos_pendientes += 1;
+      if (estadoPedido === 'APROBADO') resumenGeneral.pedidos_aprobados += 1;
+      if (estadoPedido === 'DESPACHADO') resumenGeneral.pedidos_despachados += 1;
+      if (estadoPedido === 'ENTREGADO') resumenGeneral.pedidos_entregados += 1;
+      if (estadoPedido === 'CANCELADO') resumenGeneral.pedidos_cancelados += 1;
+
+      resumenGeneral.total_importe_registrado += totalImporteRegistrado;
+      resumenGeneral.total_importe_vendido += totalImporteVendido;
+      resumenGeneral.total_importe_pendiente += totalImportePendiente;
+      resumenGeneral.total_importe_devuelto += totalImporteDevuelto;
+
+      resumenGeneral.total_costo_compra += totalCostoCompra;
+      resumenGeneral.total_utilidad += totalUtilidad;
+
+      resumenGeneral.total_pares_registrados += totalParesRegistrados;
+      resumenGeneral.total_pares_vendidos += totalParesVendidos;
+      resumenGeneral.total_pares_pendientes += totalParesPendientes;
+      resumenGeneral.total_pares_devueltos += totalParesDevueltos;
+
+      // ========================
+      // RESUMEN POR VENDEDOR
+      // ========================
+      const vendedorId = order.user?.id ?? 0;
+
+      if (!vendedoresMap.has(vendedorId)) {
+        vendedoresMap.set(vendedorId, {
+          vendedor_id: vendedorId,
+          vendedor: order.user?.full_name ?? '',
+          email: order.user?.email ?? '',
+          rol: (order.user as any)?.role?.name ?? '',
+
+          total_pedidos: 0,
+          pedidos_pendientes: 0,
+          pedidos_aprobados: 0,
+          pedidos_despachados: 0,
+          pedidos_entregados: 0,
+          pedidos_cancelados: 0,
+
+          total_importe_registrado: 0,
+          total_importe_vendido: 0,
+          total_importe_pendiente: 0,
+          total_importe_devuelto: 0,
+
+          total_costo_compra: 0,
+          total_utilidad: 0,
+
           total_pares_registrados: 0,
           total_pares_vendidos: 0,
           total_pares_pendientes: 0,
           total_pares_devueltos: 0,
-          total_importe_vendido: 0,
-          total_utilidad: 0,
+
+          margen_utilidad_porcentaje: 0,
+          ventas: [],
         });
       }
 
-      const tallaGlobal = tallasMap.get(tallaKey);
+      const vendedorAgg = vendedoresMap.get(vendedorId);
 
-      tallaGlobal.total_pares_registrados += cantidad;
-      tallaGlobal.total_pares_vendidos += esVendido ? cantidad : 0;
-      tallaGlobal.total_pares_pendientes += esPendiente ? cantidad : 0;
-      tallaGlobal.total_pares_devueltos += esDevuelto ? cantidad : 0;
-      tallaGlobal.total_importe_vendido += importeFinal;
-      tallaGlobal.total_utilidad += utilidad;
+      vendedorAgg.total_pedidos += 1;
+      if (estadoPedido === 'PENDIENTE') vendedorAgg.pedidos_pendientes += 1;
+      if (estadoPedido === 'APROBADO') vendedorAgg.pedidos_aprobados += 1;
+      if (estadoPedido === 'DESPACHADO') vendedorAgg.pedidos_despachados += 1;
+      if (estadoPedido === 'ENTREGADO') vendedorAgg.pedidos_entregados += 1;
+      if (estadoPedido === 'CANCELADO') vendedorAgg.pedidos_cancelados += 1;
+
+      vendedorAgg.total_importe_registrado += totalImporteRegistrado;
+      vendedorAgg.total_importe_vendido += totalImporteVendido;
+      vendedorAgg.total_importe_pendiente += totalImportePendiente;
+      vendedorAgg.total_importe_devuelto += totalImporteDevuelto;
+
+      vendedorAgg.total_costo_compra += totalCostoCompra;
+      vendedorAgg.total_utilidad += totalUtilidad;
+
+      vendedorAgg.total_pares_registrados += totalParesRegistrados;
+      vendedorAgg.total_pares_vendidos += totalParesVendidos;
+      vendedorAgg.total_pares_pendientes += totalParesPendientes;
+      vendedorAgg.total_pares_devueltos += totalParesDevueltos;
+
+      vendedorAgg.ventas.push(ventaMapeada);
     }
 
-    const resumenVenta = {
-      total_importe_registrado: totalImporteRegistrado,
-      total_importe_vendido: totalImporteVendido,
-      total_importe_pendiente: totalImportePendiente,
-      total_importe_devuelto: totalImporteDevuelto,
-
-      total_costo_compra: totalCostoCompra,
-      total_utilidad: totalUtilidad,
-      margen_utilidad_porcentaje:
-        totalImporteVendido > 0
-          ? Number(((totalUtilidad / totalImporteVendido) * 100).toFixed(2))
-          : 0,
-
-      total_pares_registrados: totalParesRegistrados,
-      total_pares_vendidos: totalParesVendidos,
-      total_pares_pendientes: totalParesPendientes,
-      total_pares_devueltos: totalParesDevueltos,
-    };
-
-    const ventaMapeada = {
-      sale_id: order.id,
-      ticket: `GUIA-${String(order.id).padStart(6, '0')}`,
-      fecha_registro: order.request_date,
-      estado_pedido: estadoPedido,
-
-      cliente: {
-        nombre: order.customer_name ?? order.client?.business_name ?? '',
-        dni: order.client?.document_number ?? '',
-        telefono: order.customer_phone ?? '',
-        direccion: order.customer_address ?? order.client?.address ?? '',
-        departamento: '',
-        provincia: '',
-        distrito: '',
-        referencia: order.customer_reference ?? '',
-      },
-
-      vendedor: {
-        id: order.user?.id,
-        nombre: order.user?.full_name ?? '',
-        email: order.user?.email ?? '',
-        rol: (order.user as any)?.role?.name ?? '',
-      },
-
-      pago: {
-        metodo_pago: order.payment_method ?? '',
-        total_pedido_actual: totalImporteVendido,
-        estado_pago: order.payment_status,
-        referencia_pago: order.payment_reference,
-      },
-
-      envio: {
-        es_agencia: false,
-        agencia: null,
-        codigo_envio: null,
-      },
-
-      resumen_venta: resumenVenta,
-      detalles,
-    };
-
-    detalleVentas.push(ventaMapeada);
-
-    // ========================
-    // RESUMEN GENERAL
-    // ========================
-    resumenGeneral.total_pedidos += 1;
-
-    if (estadoPedido === 'PENDIENTE') resumenGeneral.pedidos_pendientes += 1;
-    if (estadoPedido === 'APROBADO') resumenGeneral.pedidos_aprobados += 1;
-    if (estadoPedido === 'DESPACHADO') resumenGeneral.pedidos_despachados += 1;
-    if (estadoPedido === 'ENTREGADO') resumenGeneral.pedidos_entregados += 1;
-    if (estadoPedido === 'CANCELADO') resumenGeneral.pedidos_cancelados += 1;
-
-    resumenGeneral.total_importe_registrado += totalImporteRegistrado;
-    resumenGeneral.total_importe_vendido += totalImporteVendido;
-    resumenGeneral.total_importe_pendiente += totalImportePendiente;
-    resumenGeneral.total_importe_devuelto += totalImporteDevuelto;
-
-    resumenGeneral.total_costo_compra += totalCostoCompra;
-    resumenGeneral.total_utilidad += totalUtilidad;
-
-    resumenGeneral.total_pares_registrados += totalParesRegistrados;
-    resumenGeneral.total_pares_vendidos += totalParesVendidos;
-    resumenGeneral.total_pares_pendientes += totalParesPendientes;
-    resumenGeneral.total_pares_devueltos += totalParesDevueltos;
-
-    // ========================
-    // RESUMEN POR VENDEDOR
-    // ========================
-    const vendedorId = order.user?.id ?? 0;
-
-    if (!vendedoresMap.has(vendedorId)) {
-      vendedoresMap.set(vendedorId, {
-        vendedor_id: vendedorId,
-        vendedor: order.user?.full_name ?? '',
-        email: order.user?.email ?? '',
-        rol: (order.user as any)?.role?.name ?? '',
-
-        total_pedidos: 0,
-        pedidos_pendientes: 0,
-        pedidos_aprobados: 0,
-        pedidos_despachados: 0,
-        pedidos_entregados: 0,
-        pedidos_cancelados: 0,
-
-        total_importe_registrado: 0,
-        total_importe_vendido: 0,
-        total_importe_pendiente: 0,
-        total_importe_devuelto: 0,
-
-        total_costo_compra: 0,
-        total_utilidad: 0,
-
-        total_pares_registrados: 0,
-        total_pares_vendidos: 0,
-        total_pares_pendientes: 0,
-        total_pares_devueltos: 0,
-
-        margen_utilidad_porcentaje: 0,
-        ventas: [],
-      });
-    }
-
-    const vendedorAgg = vendedoresMap.get(vendedorId);
-
-    vendedorAgg.total_pedidos += 1;
-    if (estadoPedido === 'PENDIENTE') vendedorAgg.pedidos_pendientes += 1;
-    if (estadoPedido === 'APROBADO') vendedorAgg.pedidos_aprobados += 1;
-    if (estadoPedido === 'DESPACHADO') vendedorAgg.pedidos_despachados += 1;
-    if (estadoPedido === 'ENTREGADO') vendedorAgg.pedidos_entregados += 1;
-    if (estadoPedido === 'CANCELADO') vendedorAgg.pedidos_cancelados += 1;
-
-    vendedorAgg.total_importe_registrado += totalImporteRegistrado;
-    vendedorAgg.total_importe_vendido += totalImporteVendido;
-    vendedorAgg.total_importe_pendiente += totalImportePendiente;
-    vendedorAgg.total_importe_devuelto += totalImporteDevuelto;
-
-    vendedorAgg.total_costo_compra += totalCostoCompra;
-    vendedorAgg.total_utilidad += totalUtilidad;
-
-    vendedorAgg.total_pares_registrados += totalParesRegistrados;
-    vendedorAgg.total_pares_vendidos += totalParesVendidos;
-    vendedorAgg.total_pares_pendientes += totalParesPendientes;
-    vendedorAgg.total_pares_devueltos += totalParesDevueltos;
-
-    vendedorAgg.ventas.push(ventaMapeada);
-  }
-
-  resumenGeneral.margen_utilidad_porcentaje =
-    resumenGeneral.total_importe_vendido > 0
-      ? Number(
+    resumenGeneral.margen_utilidad_porcentaje =
+      resumenGeneral.total_importe_vendido > 0
+        ? Number(
           (
             (resumenGeneral.total_utilidad /
               resumenGeneral.total_importe_vendido) *
             100
           ).toFixed(2),
         )
-      : 0;
-
-  const resumenPorVendedor = Array.from(vendedoresMap.values()).map((v) => ({
-    ...v,
-    margen_utilidad_porcentaje:
-      v.total_importe_vendido > 0
-        ? Number(((v.total_utilidad / v.total_importe_vendido) * 100).toFixed(2))
-        : 0,
-  }));
-
-  const resumenPorProducto = Array.from(productosMap.values()).map((p) => {
-    p.precio_venta_promedio =
-      p._cantidadVentas > 0
-        ? Number((p._sumaPrecioVenta / p._cantidadVentas).toFixed(2))
         : 0;
 
-    p.margen_utilidad_porcentaje =
-      p.total_importe_vendido > 0
-        ? Number(((p.total_utilidad / p.total_importe_vendido) * 100).toFixed(2))
-        : 0;
+    const resumenPorVendedor = Array.from(vendedoresMap.values()).map((v) => ({
+      ...v,
+      margen_utilidad_porcentaje:
+        v.total_importe_vendido > 0
+          ? Number(((v.total_utilidad / v.total_importe_vendido) * 100).toFixed(2))
+          : 0,
+    }));
 
-    delete p._sumaPrecioVenta;
-    delete p._cantidadVentas;
+    const resumenPorProducto = Array.from(productosMap.values()).map((p) => {
+      p.precio_venta_promedio =
+        p._cantidadVentas > 0
+          ? Number((p._sumaPrecioVenta / p._cantidadVentas).toFixed(2))
+          : 0;
 
-    return p;
-  });
+      p.margen_utilidad_porcentaje =
+        p.total_importe_vendido > 0
+          ? Number(((p.total_utilidad / p.total_importe_vendido) * 100).toFixed(2))
+          : 0;
 
-  return {
-    filtros: {
-      fecha_inicio: dto.fecha_inicio ?? null,
-      fecha_fin: dto.fecha_fin ?? null,
-      vendedor_id: dto.vendedor_id ?? null,
-    },
+      delete p._sumaPrecioVenta;
+      delete p._cantidadVentas;
 
-    resumen_general: resumenGeneral,
-    resumen_por_vendedor: resumenPorVendedor,
-    resumen_por_producto: resumenPorProducto,
-    resumen_por_talla: Array.from(tallasMap.values()),
-    detalle_ventas: detalleVentas,
-  };
-}
+      return p;
+    });
+
+    return {
+      filtros: {
+        fecha_inicio: dto.fecha_inicio ?? null,
+        fecha_fin: dto.fecha_fin ?? null,
+        vendedor_id: dto.vendedor_id ?? null,
+      },
+
+      resumen_general: resumenGeneral,
+      resumen_por_vendedor: resumenPorVendedor,
+      resumen_por_producto: resumenPorProducto,
+      resumen_por_talla: Array.from(tallasMap.values()),
+      detalle_ventas: detalleVentas,
+    };
+  }
 
 }
 

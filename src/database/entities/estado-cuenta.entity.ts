@@ -54,8 +54,12 @@ export class EstadoCuenta {
   @JoinColumn({ name: 'id_guia_interna' })
   guia_interna!: GuiaInterna;
 
-  @Column({ default: EstadoCuentaEnum.PENDIENTE })
-  estado!: EstadoCuentaEnum;
+  @Column({
+  type: 'varchar',
+  length: 20,
+  default: EstadoCuentaEnum.PENDIENTE,
+})
+estado!: EstadoCuentaEnum;
 
   @Column({
     name: 'fecha_vencimiento',

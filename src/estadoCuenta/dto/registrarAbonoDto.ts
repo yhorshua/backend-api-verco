@@ -1,15 +1,40 @@
-import { IsNumber, IsString } from 'class-validator';
+import {
+  IsDateString,
+  IsInt,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Min,
+} from 'class-validator';
 
-export class RegistrarAbonoDto {
+export class RegistrarAbonoEstadoCuentaDto {
+  @IsInt()
+  id_estado_cuenta: number;
+
   @IsNumber()
-  cliente_id!: number;
+  @Min(0.01)
+  monto_abono: number;
 
-  @IsNumber()
-  monto_abono!: number;
+  @IsInt()
+  usuario_id: number;
 
+  @IsOptional()
   @IsString()
-  tipo_abono!: string;
+  metodo_pago?: string;
 
+  @IsOptional()
   @IsString()
-  moneda_abono!: string;
+  numero_operacion?: string;
+
+  @IsOptional()
+  @IsDateString()
+  fecha_pago?: string;
+
+  @IsOptional()
+  @IsString()
+  observacion?: string;
+
+  @IsOptional()
+  @IsString()
+  comprobante_url?: string;
 }

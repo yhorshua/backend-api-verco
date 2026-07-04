@@ -10,6 +10,7 @@ import { Stock } from '../database/entities/stock.entity';
 import { InventoryMovement } from '../database/entities/inventory-movements.entity';
 import { Product } from '../database/entities/product.entity';
 import { StockReservation } from '../database/entities/stock_reservations.entity';
+import { OrdersHistorial } from 'src/database/entities/orders-historial.entity';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { StockReservation } from '../database/entities/stock_reservations.entity
       InventoryMovement,
       Product,
       StockReservation,
+      OrdersHistorial,
     ]),
   ],
   controllers: [OrdersController],
