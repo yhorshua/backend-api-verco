@@ -757,16 +757,18 @@ export class StockService {
 
       const productSizes = await productSizeRepo
         .createQueryBuilder('ps')
-        .select(['ps.id', 'ps.size'])
-        .addSelect('ps.product_id')
+        .select('ps.id', 'id')
+        .addSelect('ps.product_id', 'product_id')
         .where('ps.id IN (:...productSizeIds)', { productSizeIds })
-        .getMany();
+        .getRawMany();
 
-      const sizeMap = new Map<string, ProductSize>();
+      const sizeMap = new Map<string, any>();
 
-      for (const size of productSizes as any[]) {
-        const productId = Number(size.product_id ?? size.product?.id);
-        const key = `${productId}-${size.id}`;
+      for (const size of productSizes) {
+        const productId = Number(size.product_id);
+        const productSizeId = Number(size.id);
+
+        const key = `${productId}-${productSizeId}`;
         sizeMap.set(key, size);
       }
 
