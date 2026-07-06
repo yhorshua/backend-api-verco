@@ -1,4 +1,4 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Query, Req, UseGuards } from '@nestjs/common';
 import { ReportsService } from './reports.service';
 import { SalesReportQueryDto } from './dto/sales-report.query.dto';
 import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
@@ -76,4 +76,10 @@ export class ReportsController {
   ) {
     return this.reportsService.getSneakersGoalProgress(dto);
   }
+
+@Get('monthly-total')
+@UseGuards(JwtAuthGuard)
+async getMonthlyWebSalesTotal(@Req() req) {
+  return this.reportsService.getMonthlyWebSalesTotal(req.user);
+}
 }

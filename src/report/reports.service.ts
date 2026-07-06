@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, Repository } from 'typeorm';
 
@@ -11,6 +11,8 @@ import { User } from '../database/entities/user.entity';
 import { SalesReportQueryDto } from './dto/sales-report.query.dto';
 import { CashMovement } from 'src/database/entities/cash-movement.entity';
 import { CashRegisterSession } from 'src/database/entities/cash-register-session.entity';
+import { DetailStatus, WebSaleDetail } from 'src/database/entities/webDetail.entity';
+import { WebSale, WebSaleStatus } from 'src/database/entities/webSale.entity';
 
 type ReportRow = {
   sale_id: number;
@@ -66,6 +68,11 @@ export class ReportsService {
     @InjectRepository(Warehouse) private readonly warehouseRepo: Repository<Warehouse>,
     @InjectRepository(User) private readonly userRepo: Repository<User>,
     @InjectRepository(CashRegisterSession) private readonly cashRegisterSessionRepo: Repository<CashRegisterSession>,
+    @InjectRepository(WebSale)
+    private readonly webSaleRepository: Repository<WebSale>,
+
+    @InjectRepository(WebSaleDetail)
+    private readonly webSaleDetailRepository: Repository<WebSaleDetail>,
   ) { }
 
   private addOneDay(dateISO: string): string {
@@ -1144,6 +1151,239 @@ export class ReportsService {
       },
     };
   }
+
+
+ private buildCurrentWebSaleMonthRange() {
+  const now = new Date();
+
+  const selectedYear = now.getFullYear();
+  const selectedMonth = now.getMonth() + 1;
+
+  const startDate = new Date(selectedYear, selectedMonth - 1, 1);
+  const endDate = new Date(selectedYear, selectedMonth, 1);
+
+  const formatDate = (date: Date) => {
+    const yyyy = date.getFullYear();
+    const mm = String(date.getMonth() + 1).padStart(2, '0');
+    const dd = String(date.getDate()).padStart(2, '0');
+
+    return `${yyyy}-${mm}-${dd} 00:00:00`;
+  };
+
+  return {
+    year: selectedYear,
+    month: selectedMonth,
+    start: formatDate(startDate),
+    endExclusive: formatDate(endDate),
+  };
+}
+
+async getMonthlyWebSalesTotal(user: any) {
+  const {
+    year: selectedYear,
+    month: selectedMonth,
+    start,
+    endExclusive,
+  } = this.buildCurrentWebSaleMonthRange();
+
+  const roleName =
+    user?.role?.name_role ||
+    user?.role;
+
+  const loggedUserId =
+    user?.userId ||
+    user?.id ||
+    user?.sub;
+
+  if (roleName !== 'Vendedor Web') {
+    throw new UnauthorizedException(
+      'Solo los usuarios con rol Vendedor Web pueden consultar su meta mensual'
+    );
+  }
+
+  const webSaleQuery = this.webSaleRepository
+    .createQueryBuilder('webSale')
+    .where('webSale.created_at >= :start', { start })
+    .andWhere('webSale.created_at < :endExclusive', { endExclusive })
+    .andWhere('webSale.user_id = :loggedUserId', {
+      loggedUserId,
+    });
+
+  const webSaleRaw = await webSaleQuery
+    .select('COUNT(webSale.id)', 'total_orders')
+
+    .addSelect(
+      `COALESCE(SUM(CASE 
+        WHEN webSale.status != :canceled 
+        THEN webSale.total_amount 
+        ELSE 0 
+      END), 0)`,
+      'total_amount'
+    )
+
+    .addSelect(
+      `COALESCE(SUM(CASE 
+        WHEN webSale.status = :delivered 
+        THEN webSale.total_amount 
+        ELSE 0 
+      END), 0)`,
+      'delivered_amount'
+    )
+
+    .addSelect(
+      `COUNT(CASE WHEN webSale.status = :pending THEN 1 END)`,
+      'pending_orders'
+    )
+
+    .addSelect(
+      `COUNT(CASE WHEN webSale.status = :approved THEN 1 END)`,
+      'approved_orders'
+    )
+
+    .addSelect(
+      `COUNT(CASE WHEN webSale.status = :dispatched THEN 1 END)`,
+      'dispatched_orders'
+    )
+
+    .addSelect(
+      `COUNT(CASE WHEN webSale.status = :delivered THEN 1 END)`,
+      'delivered_orders'
+    )
+
+    .addSelect(
+      `COUNT(CASE WHEN webSale.status = :canceled THEN 1 END)`,
+      'canceled_orders'
+    )
+
+    .setParameters({
+      pending: WebSaleStatus.PENDING,
+      approved: WebSaleStatus.APPROVED,
+      dispatched: WebSaleStatus.DISPATCHED,
+      delivered: WebSaleStatus.DELIVERED,
+      canceled: WebSaleStatus.CANCELED,
+    })
+    .getRawOne();
+
+  const webDetailQuery = this.webSaleDetailRepository
+    .createQueryBuilder('webDetail')
+    .innerJoin('webDetail.sale', 'webSale')
+    .where('webSale.created_at >= :start', { start })
+    .andWhere('webSale.created_at < :endExclusive', { endExclusive })
+    .andWhere('webSale.user_id = :loggedUserId', {
+      loggedUserId,
+    });
+
+  const webDetailRaw = await webDetailQuery
+    .select(
+      `COALESCE(SUM(CASE 
+        WHEN webSale.status != :canceled 
+        THEN webDetail.quantity 
+        ELSE 0 
+      END), 0)`,
+      'total_pairs_registered'
+    )
+
+    .addSelect(
+      `COALESCE(SUM(CASE 
+        WHEN webDetail.detail_status = :vendido 
+        THEN webDetail.quantity 
+        ELSE 0 
+      END), 0)`,
+      'total_pairs_sold'
+    )
+
+    .addSelect(
+      `COALESCE(SUM(CASE 
+        WHEN webDetail.detail_status = :pendiente 
+        AND webSale.status != :canceled
+        THEN webDetail.quantity 
+        ELSE 0 
+      END), 0)`,
+      'total_pairs_pending'
+    )
+
+    .addSelect(
+      `COALESCE(SUM(CASE 
+        WHEN webDetail.detail_status = :devuelto 
+        OR webSale.status = :canceled
+        THEN webDetail.quantity 
+        ELSE 0 
+      END), 0)`,
+      'total_pairs_returned'
+    )
+
+    .addSelect(
+      `COALESCE(SUM(CASE 
+        WHEN webDetail.detail_status = :vendido 
+        THEN COALESCE(webDetail.final_amount, webDetail.subtotal) 
+        ELSE 0 
+      END), 0)`,
+      'sold_amount'
+    )
+
+    .addSelect(
+      `COALESCE(SUM(CASE 
+        WHEN webDetail.detail_status = :pendiente 
+        AND webSale.status != :canceled
+        THEN webDetail.subtotal 
+        ELSE 0 
+      END), 0)`,
+      'pending_amount'
+    )
+
+    .addSelect(
+      `COALESCE(SUM(CASE 
+        WHEN webDetail.detail_status = :devuelto 
+        OR webSale.status = :canceled
+        THEN webDetail.subtotal 
+        ELSE 0 
+      END), 0)`,
+      'returned_amount'
+    )
+
+    .setParameters({
+      pendiente: DetailStatus.PENDIENTE,
+      vendido: DetailStatus.VENDIDO,
+      devuelto: DetailStatus.DEVUELTO,
+      canceled: WebSaleStatus.CANCELED,
+    })
+    .getRawOne();
+
+  return {
+    year: selectedYear,
+    month: selectedMonth,
+
+    start,
+    end: endExclusive,
+
+    role: roleName,
+    seller_id: Number(loggedUserId),
+
+    pedidos: {
+      total: Number(webSaleRaw?.total_orders || 0),
+      pendiente: Number(webSaleRaw?.pending_orders || 0),
+      aprobado: Number(webSaleRaw?.approved_orders || 0),
+      despachado: Number(webSaleRaw?.dispatched_orders || 0),
+      entregado: Number(webSaleRaw?.delivered_orders || 0),
+      cancelado: Number(webSaleRaw?.canceled_orders || 0),
+    },
+
+    importes: {
+      total_registrado: Number(Number(webSaleRaw?.total_amount || 0).toFixed(2)),
+      total_entregado: Number(Number(webSaleRaw?.delivered_amount || 0).toFixed(2)),
+      total_vendido_real: Number(Number(webDetailRaw?.sold_amount || 0).toFixed(2)),
+      total_pendiente: Number(Number(webDetailRaw?.pending_amount || 0).toFixed(2)),
+      total_devuelto: Number(Number(webDetailRaw?.returned_amount || 0).toFixed(2)),
+    },
+
+    pares: {
+      registrados: Number(webDetailRaw?.total_pairs_registered || 0),
+      vendidos: Number(webDetailRaw?.total_pairs_sold || 0),
+      pendientes: Number(webDetailRaw?.total_pairs_pending || 0),
+      devueltos: Number(webDetailRaw?.total_pairs_returned || 0),
+    },
+  };
+}
 
 }
 
