@@ -9,6 +9,7 @@ import { WebSaleController } from './websale.controller';
 import { WebSaleService } from './websale.service';
 import { Product } from 'src/database/entities/product.entity';
 import { WebSaleInvoice } from 'src/database/entities/webSaleInvoices';
+import { EfactModule } from 'src/efactService/efact.module';
 
 @Module({
   imports: [
@@ -17,7 +18,8 @@ import { WebSaleInvoice } from 'src/database/entities/webSaleInvoices';
       WebSaleDetail,
       Product,
       WebSaleInvoice,
-    ])
+    ]),
+    EfactModule,
   ],
   controllers: [WebSaleController],
   providers: [
