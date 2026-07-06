@@ -12,9 +12,11 @@ import { User } from '../database/entities/user.entity';
 import { CashMovement } from 'src/database/entities/cash-movement.entity';
 import { CashMovementController } from './cashmovement.controller';
 import { CashRegisterSession } from 'src/database/entities/cash-register-session.entity';
+import { WebSale } from 'src/database/entities/webSale.entity';
+import { WebSaleDetail } from 'src/database/entities/webDetail.entity';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Sale, SaleDetail, SalePayment, Warehouse, User, CashMovement, CashRegisterSession])],
+  imports: [TypeOrmModule.forFeature([Sale, SaleDetail, SalePayment, Warehouse, User, CashMovement, CashRegisterSession, WebSale, WebSaleDetail])],
   controllers: [ReportsController, CashMovementController],
   providers: [ReportsService],
 })
