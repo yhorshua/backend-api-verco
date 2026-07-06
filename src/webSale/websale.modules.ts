@@ -8,13 +8,15 @@ import { WebSaleController } from './websale.controller';
 
 import { WebSaleService } from './websale.service';
 import { Product } from 'src/database/entities/product.entity';
+import { WebSaleInvoice } from 'src/database/entities/webSaleInvoices';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([
       WebSale,
       WebSaleDetail,
-      Product
+      Product,
+      WebSaleInvoice,
     ])
   ],
   controllers: [WebSaleController],

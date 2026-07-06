@@ -65,6 +65,7 @@ import { ProductImage } from './database/entities/productImage.entity';
 import { OrdersHistorial } from './database/entities/orders-historial.entity';
 import { GuiaInternaDevolucion } from './database/entities/guia-interna-devolucion.entity';
 import { GuiaInternaDevolucionDetalle } from './database/entities/guia-interna-devolucion-detalle.entity';
+import { WebSaleInvoice } from './database/entities/webSaleInvoices';
 
 @Module({
   imports: [
@@ -128,6 +129,7 @@ import { GuiaInternaDevolucionDetalle } from './database/entities/guia-interna-d
         GuiaInternaDevolucionDetalle,
         OrdersHistorial,
         SaldoFavorCliente,
+        WebSaleInvoice,
       ],
     }),
 

@@ -8,6 +8,7 @@ import {
   Post,
   Query,
   Req,
+  Res,
   UseGuards
 } from '@nestjs/common';
 
@@ -18,12 +19,16 @@ import { FilterWebSaleDto } from './dto/filter-websale.dto';
 import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
 import { UpdateWebSaleDto } from './dto/updateWebSaleDto';
 import { DeliverSaleDto } from './dto/deliverySaleDto';
+import { EfactService } from 'src/efactService/efact.service';
+import type { Response } from 'express';
 
 @Controller('websales')
 export class WebSaleController {
 
   constructor(
     private readonly webSaleService: WebSaleService,
+
+    private readonly efactService: EfactService
   ) { }
 
   @Post()
@@ -74,6 +79,30 @@ export class WebSaleController {
       endDate,
       userId: userId ? String(userId) : undefined,
     });
+  }
+
+
+   // @UseGuards(JwtAuthGuard)
+  @Post(':id/boleta')
+  async generateBoleta(@Param('id') id: string) {
+    return this.efactService.generateBoletaFromWebSale(Number(id));
+  }
+
+  // @UseGuards(JwtAuthGuard)
+  @Get(':id/boleta/pdf')
+  async getBoletaPdf(
+    @Param('id') id: string,
+    @Res() res: Response,
+  ) {
+    const pdfBuffer = await this.efactService.getPdfBySaleId(Number(id));
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader(
+      'Content-Disposition',
+      `inline; filename="boleta-${id}.pdf"`
+    );
+
+    return res.send(pdfBuffer);
   }
 
 }
