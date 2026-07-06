@@ -86,9 +86,7 @@ export class WebSaleService {
         quantity: detail.quantity,
         sale_price: detail.sale_price,
         subtotal: detail.subtotal,
-
-        // Precio de compra histórico
-        purchase_price_at_sale: product.factory_price
+        purchase_price_at_sale: Number(product.factory_price ?? 0),
       });
 
       details.push(newDetail);
