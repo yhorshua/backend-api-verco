@@ -47,6 +47,9 @@ export class EfactService {
         const username = this.configService.get<string>('EFACT_USER');
         const password = this.configService.get<string>('EFACT_PASSWORD');
 
+        const clientId = this.configService.get<string>('EFACT_CLIENT_ID') || 'client';
+        const clientSecret = this.configService.get<string>('EFACT_CLIENT_SECRET') || 'secret';
+
         if (!tokenUrl || !username || !password) {
             throw new InternalServerErrorException(
                 'Faltan credenciales de eFact en el archivo .env'
@@ -59,23 +62,30 @@ export class EfactService {
             body.append('username', username);
             body.append('password', password);
 
-            const response = await axios.post(tokenUrl, body, {
+            const basicToken = Buffer
+                .from(`${clientId}:${clientSecret}`)
+                .toString('base64');
+
+            const response = await axios.post(tokenUrl, body.toString(), {
                 headers: {
                     'Content-Type': 'application/x-www-form-urlencoded',
+                    Authorization: `Basic ${basicToken}`,
                 },
             });
 
-            const token =
-                response.data?.access_token ||
-                response.data?.token;
+            const accessToken = response.data?.access_token;
 
-            if (!token) {
+            if (!accessToken) {
+                console.error('Respuesta token eFact:', response.data);
                 throw new Error('eFact no devolvió access_token');
             }
 
-            return token;
+            return accessToken;
         } catch (error: any) {
-            console.error('Error token eFact:', error.response?.data || error.message);
+            console.error(
+                'Error token eFact:',
+                error.response?.data || error.message
+            );
 
             throw new InternalServerErrorException(
                 'No se pudo obtener el token de eFact'
