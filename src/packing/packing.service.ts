@@ -285,6 +285,33 @@ export class PackingService {
 
 
   async closePacking(orderId: number, userId: number) {
+
+    const normalizeCode = (value: any): string => {
+      return String(value || '').trim().toUpperCase();
+    };
+
+    const normalizeSize = (value: any): string => {
+      if (Array.isArray(value)) {
+        return String(value[0] || '').trim().toUpperCase();
+      }
+
+      const text = String(value || '').trim();
+
+      try {
+        const parsed = JSON.parse(text);
+
+        if (Array.isArray(parsed)) {
+          return String(parsed[0] || '').trim().toUpperCase();
+        }
+      } catch { }
+
+      return text
+        .replace(/[\[\]\s"']/g, '')
+        .trim()
+        .toUpperCase();
+    };
+
+
     return this.dataSource.transaction(async (manager) => {
       const orderRepo = manager.getRepository(Order);
       const detailRepo = manager.getRepository(OrderDetail);
@@ -338,7 +365,10 @@ export class PackingService {
       });
 
       const codeById = new Map(
-        products.map((p: any) => [p.id, p.article_code]),
+        products.map((p: any) => [
+          Number(p.id),
+          normalizeCode(p.article_code),
+        ]),
       );
 
       const escaneos = await escaneoRepo.find({
@@ -349,14 +379,22 @@ export class PackingService {
          3️⃣ VALIDAR ESCANEOS INVÁLIDOS
       ============================================================ */
       for (const e of escaneos as any[]) {
+        const codigoEscaneo = normalizeCode(e.codigo_producto);
+        const tallaEscaneo = normalizeSize(e.talla);
+
         const existe = details.some((d: any) => {
-          const code = codeById.get(d.product_id);
-          return code === e.codigo_producto && d.size === e.talla;
+          const codigoPedido = codeById.get(Number(d.product_id));
+          const tallaPedido = normalizeSize(d.size);
+
+          return (
+            codigoPedido === codigoEscaneo &&
+            tallaPedido === tallaEscaneo
+          );
         });
 
         if (!existe) {
           throw new BadRequestException(
-            `Escaneo inválido: ${e.codigo_producto} talla ${e.talla}`,
+            `Escaneo inválido: ${codigoEscaneo} talla ${tallaEscaneo}`,
           );
         }
       }
@@ -368,26 +406,35 @@ export class PackingService {
       const scanMap = new Map<string, number>();
 
       escaneos.forEach((e: any) => {
-        const key = `${e.codigo_producto}|${e.talla}`;
-        scanMap.set(key, (scanMap.get(key) || 0) + Number(e.cantidad));
+        const codigo = normalizeCode(e.codigo_producto);
+        const talla = normalizeSize(e.talla);
+
+        const key = `${codigo}|${talla}`;
+
+        scanMap.set(
+          key,
+          (scanMap.get(key) || 0) + Number(e.cantidad || 0),
+        );
       });
 
       for (const d of details as any[]) {
-        const code = codeById.get(d.product_id);
-        const key = `${code}|${d.size}`;
+        const code = codeById.get(Number(d.product_id));
+        const talla = normalizeSize(d.size);
 
-        const escaneado = scanMap.get(key) || 0;
-        const solicitado = Number(d.quantity);
+        const key = `${code}|${talla}`;
+
+        const escaneado = Number(scanMap.get(key) || 0);
+        const solicitado = Number(d.quantity || 0);
 
         if (escaneado < solicitado) {
           throw new BadRequestException(
-            `Packing incompleto: ${code} talla ${d.size} → ${escaneado}/${solicitado}`,
+            `Packing incompleto: ${code} talla ${talla} → ${escaneado}/${solicitado}`,
           );
         }
 
         if (escaneado > solicitado) {
           throw new BadRequestException(
-            `Packing excedido: ${code} talla ${d.size}`,
+            `Packing excedido: ${code} talla ${talla} → ${escaneado}/${solicitado}`,
           );
         }
       }
