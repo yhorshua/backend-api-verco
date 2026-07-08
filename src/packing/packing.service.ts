@@ -56,218 +56,218 @@ export class PackingService {
   }
 
   async scanItemsBulk(dto: ScanItemsBulkDto) {
-  if (!dto.order_id) {
-    throw new BadRequestException('order_id es requerido');
-  }
-
-  if (!dto.items?.length) {
-    throw new BadRequestException('items es requerido');
-  }
-
-  const groupedMap = new Map<
-    string,
-    {
-      codigo_producto: string;
-      talla: string;
-      cantidad: number;
-    }
-  >();
-
-  for (const item of dto.items) {
-    if (!item.codigo_producto?.trim()) {
-      throw new BadRequestException('codigo_producto es requerido');
+    if (!dto.order_id) {
+      throw new BadRequestException('order_id es requerido');
     }
 
-    if (!item.talla?.trim()) {
-      throw new BadRequestException('talla es requerido');
+    if (!dto.items?.length) {
+      throw new BadRequestException('items es requerido');
     }
 
-    const cantidad = Number(item.cantidad);
-
-    if (!Number.isFinite(cantidad) || cantidad <= 0) {
-      throw new BadRequestException('cantidad debe ser > 0');
-    }
-
-    const codigo = item.codigo_producto.trim().toUpperCase();
-    const talla = item.talla.trim().toUpperCase();
-
-    const key = `${codigo}|${talla}`;
-
-    const prev = groupedMap.get(key);
-
-    if (prev) {
-      prev.cantidad += cantidad;
-    } else {
-      groupedMap.set(key, {
-        codigo_producto: codigo,
-        talla,
-        cantidad,
-      });
-    }
-  }
-
-  const groupedItems = Array.from(groupedMap.values());
-
-  return this.dataSource.transaction(async (manager) => {
-    const productRepo = manager.getRepository(Product);
-    const orderDetailRepo = manager.getRepository(OrderDetail);
-    const escaneoRepo = manager.getRepository(Escaneo);
-
-    const codes = [...new Set(groupedItems.map((i) => i.codigo_producto))];
-
-    // ===============================
-    // 1. Buscar productos en una sola consulta
-    // ===============================
-    const products = await productRepo
-      .createQueryBuilder('p')
-      .select(['p.id', 'p.article_code'])
-      .where('p.article_code IN (:...codes)', { codes })
-      .getMany();
-
-    const productByCode = new Map(
-      products.map((p) => [p.article_code.trim().toUpperCase(), p]),
-    );
-
-    const missingCodes = codes.filter((code) => !productByCode.has(code));
-
-    if (missingCodes.length > 0) {
-      throw new BadRequestException(
-        `Códigos no existen: ${missingCodes.join(', ')}`,
-      );
-    }
-
-    const productIds = products.map((p) => p.id);
-
-    // ===============================
-    // 2. Traer detalles del pedido
-    // ===============================
-    const orderDetails = await orderDetailRepo
-      .createQueryBuilder('d')
-      .select([
-        'd.id',
-        'd.order_id',
-        'd.product_id',
-        'd.size',
-        'd.quantity',
-      ])
-      .where('d.order_id = :orderId', {
-        orderId: dto.order_id,
-      })
-      .andWhere('d.product_id IN (:...productIds)', {
-        productIds,
-      })
-      .getMany();
-
-    if (!orderDetails.length) {
-      throw new BadRequestException('Pedido sin detalles válidos');
-    }
-
-    const orderMap = new Map<
+    const groupedMap = new Map<
       string,
       {
-        product_id: number;
+        codigo_producto: string;
         talla: string;
-        orderedQty: number;
+        cantidad: number;
       }
     >();
 
-    for (const d of orderDetails) {
-      const talla = String(d.size).trim().toUpperCase();
-      const key = `${d.product_id}|${talla}`;
+    for (const item of dto.items) {
+      if (!item.codigo_producto?.trim()) {
+        throw new BadRequestException('codigo_producto es requerido');
+      }
 
-      orderMap.set(key, {
-        product_id: d.product_id,
-        talla,
-        orderedQty: Number(d.quantity || 0),
-      });
+      if (!item.talla?.trim()) {
+        throw new BadRequestException('talla es requerido');
+      }
+
+      const cantidad = Number(item.cantidad);
+
+      if (!Number.isFinite(cantidad) || cantidad <= 0) {
+        throw new BadRequestException('cantidad debe ser > 0');
+      }
+
+      const codigo = item.codigo_producto.trim().toUpperCase();
+      const talla = item.talla.trim().toUpperCase();
+
+      const key = `${codigo}|${talla}`;
+
+      const prev = groupedMap.get(key);
+
+      if (prev) {
+        prev.cantidad += cantidad;
+      } else {
+        groupedMap.set(key, {
+          codigo_producto: codigo,
+          talla,
+          cantidad,
+        });
+      }
     }
 
-    // ===============================
-    // 3. Consultar escaneos existentes
-    // ===============================
-    const scannedRows = await escaneoRepo
-      .createQueryBuilder('e')
-      .select('e.codigo_producto', 'codigo_producto')
-      .addSelect('e.talla', 'talla')
-      .addSelect('SUM(e.cantidad)', 'cantidad')
-      .where('e.id_pedido = :orderId', {
-        orderId: dto.order_id,
-      })
-      .groupBy('e.codigo_producto')
-      .addGroupBy('e.talla')
-      .getRawMany();
+    const groupedItems = Array.from(groupedMap.values());
 
-    const scannedMap = new Map<string, number>();
+    return this.dataSource.transaction(async (manager) => {
+      const productRepo = manager.getRepository(Product);
+      const orderDetailRepo = manager.getRepository(OrderDetail);
+      const escaneoRepo = manager.getRepository(Escaneo);
 
-    for (const row of scannedRows) {
-      const codigo = String(row.codigo_producto).trim().toUpperCase();
-      const talla = String(row.talla).trim().toUpperCase();
+      const codes = [...new Set(groupedItems.map((i) => i.codigo_producto))];
 
-      scannedMap.set(`${codigo}|${talla}`, Number(row.cantidad || 0));
-    }
+      // ===============================
+      // 1. Buscar productos en una sola consulta
+      // ===============================
+      const products = await productRepo
+        .createQueryBuilder('p')
+        .select(['p.id', 'p.article_code'])
+        .where('p.article_code IN (:...codes)', { codes })
+        .getMany();
 
-    // ===============================
-    // 4. Validar lote completo
-    // ===============================
-    const inserts: Partial<Escaneo>[] = [];
+      const productByCode = new Map(
+        products.map((p) => [p.article_code.trim().toUpperCase(), p]),
+      );
 
-    for (const item of groupedItems) {
-      const product = productByCode.get(item.codigo_producto);
+      const missingCodes = codes.filter((code) => !productByCode.has(code));
 
-      if (!product) {
+      if (missingCodes.length > 0) {
         throw new BadRequestException(
-          `Código no existe: ${item.codigo_producto}`,
+          `Códigos no existen: ${missingCodes.join(', ')}`,
         );
       }
 
-      const orderKey = `${product.id}|${item.talla}`;
-      const orderLine = orderMap.get(orderKey);
+      const productIds = products.map((p) => p.id);
 
-      if (!orderLine) {
-        throw new BadRequestException(
-          `Producto/talla no pertenece al pedido: ${item.codigo_producto} talla ${item.talla}`,
-        );
+      // ===============================
+      // 2. Traer detalles del pedido
+      // ===============================
+      const orderDetails = await orderDetailRepo
+        .createQueryBuilder('d')
+        .select([
+          'd.id',
+          'd.order_id',
+          'd.product_id',
+          'd.size',
+          'd.quantity',
+        ])
+        .where('d.order_id = :orderId', {
+          orderId: dto.order_id,
+        })
+        .andWhere('d.product_id IN (:...productIds)', {
+          productIds,
+        })
+        .getMany();
+
+      if (!orderDetails.length) {
+        throw new BadRequestException('Pedido sin detalles válidos');
       }
 
-      const scanKey = `${item.codigo_producto}|${item.talla}`;
-      const scannedQty = scannedMap.get(scanKey) || 0;
-      const totalAfterScan = scannedQty + item.cantidad;
+      const orderMap = new Map<
+        string,
+        {
+          product_id: number;
+          talla: string;
+          orderedQty: number;
+        }
+      >();
 
-      if (totalAfterScan > orderLine.orderedQty) {
-        throw new BadRequestException(
-          `Excede lo pedido: ${item.codigo_producto} talla ${item.talla}. Pedido=${orderLine.orderedQty}, Escaneado=${scannedQty}, Intentando=${item.cantidad}`,
-        );
+      for (const d of orderDetails) {
+        const talla = String(d.size).trim().toUpperCase();
+        const key = `${d.product_id}|${talla}`;
+
+        orderMap.set(key, {
+          product_id: d.product_id,
+          talla,
+          orderedQty: Number(d.quantity || 0),
+        });
       }
 
-      inserts.push({
-        id_pedido: dto.order_id,
-        codigo_producto: item.codigo_producto,
-        talla: item.talla,
-        cantidad: item.cantidad,
-      });
-    }
+      // ===============================
+      // 3. Consultar escaneos existentes
+      // ===============================
+      const scannedRows = await escaneoRepo
+        .createQueryBuilder('e')
+        .select('e.codigo_producto', 'codigo_producto')
+        .addSelect('e.talla', 'talla')
+        .addSelect('SUM(e.cantidad)', 'cantidad')
+        .where('e.id_pedido = :orderId', {
+          orderId: dto.order_id,
+        })
+        .groupBy('e.codigo_producto')
+        .addGroupBy('e.talla')
+        .getRawMany();
 
-    // ===============================
-    // 5. Insert masivo
-    // ===============================
-    await escaneoRepo
-      .createQueryBuilder()
-      .insert()
-      .into(Escaneo)
-      .values(inserts)
-      .execute();
+      const scannedMap = new Map<string, number>();
 
-    return {
-      ok: true,
-      order_id: dto.order_id,
-      inserted_rows: inserts.length,
-      total_quantity: inserts.reduce(
-        (acc, item) => acc + Number(item.cantidad || 0),
-        0,
-      ),
-    };
-  });
-}
+      for (const row of scannedRows) {
+        const codigo = String(row.codigo_producto).trim().toUpperCase();
+        const talla = String(row.talla).trim().toUpperCase();
+
+        scannedMap.set(`${codigo}|${talla}`, Number(row.cantidad || 0));
+      }
+
+      // ===============================
+      // 4. Validar lote completo
+      // ===============================
+      const inserts: Partial<Escaneo>[] = [];
+
+      for (const item of groupedItems) {
+        const product = productByCode.get(item.codigo_producto);
+
+        if (!product) {
+          throw new BadRequestException(
+            `Código no existe: ${item.codigo_producto}`,
+          );
+        }
+
+        const orderKey = `${product.id}|${item.talla}`;
+        const orderLine = orderMap.get(orderKey);
+
+        if (!orderLine) {
+          throw new BadRequestException(
+            `Producto/talla no pertenece al pedido: ${item.codigo_producto} talla ${item.talla}`,
+          );
+        }
+
+        const scanKey = `${item.codigo_producto}|${item.talla}`;
+        const scannedQty = scannedMap.get(scanKey) || 0;
+        const totalAfterScan = scannedQty + item.cantidad;
+
+        if (totalAfterScan > orderLine.orderedQty) {
+          throw new BadRequestException(
+            `Excede lo pedido: ${item.codigo_producto} talla ${item.talla}. Pedido=${orderLine.orderedQty}, Escaneado=${scannedQty}, Intentando=${item.cantidad}`,
+          );
+        }
+
+        inserts.push({
+          id_pedido: dto.order_id,
+          codigo_producto: item.codigo_producto,
+          talla: item.talla,
+          cantidad: item.cantidad,
+        });
+      }
+
+      // ===============================
+      // 5. Insert masivo
+      // ===============================
+      await escaneoRepo
+        .createQueryBuilder()
+        .insert()
+        .into(Escaneo)
+        .values(inserts)
+        .execute();
+
+      return {
+        ok: true,
+        order_id: dto.order_id,
+        inserted_rows: inserts.length,
+        total_quantity: inserts.reduce(
+          (acc, item) => acc + Number(item.cantidad || 0),
+          0,
+        ),
+      };
+    });
+  }
 
   /* ============================================================
      🧹 LIMPIAR CACHE CUANDO TERMINA PACKING
@@ -331,7 +331,7 @@ export class PackingService {
             .filter((id: number) => !isNaN(id))
         ),
       ];
-      
+
       const products = await productRepo.find({
         where: { id: In(productIds) },
         select: ['id', 'article_code'] as any,
@@ -513,6 +513,17 @@ export class PackingService {
 
 
   async getScanStatus(orderId: number) {
+    const normalizeCode = (value: any): string => {
+      return String(value || '').trim().toUpperCase();
+    };
+
+    const normalizeSize = (value: any): string => {
+      return String(value || '')
+        .replace(/[\[\]\s]/g, '')
+        .trim()
+        .toUpperCase();
+    };
+
     const orderDetails = await this.orderDetailRepo.find({
       where: { order_id: orderId } as any,
     });
@@ -525,8 +536,9 @@ export class PackingService {
       where: { id_pedido: orderId } as any,
     });
 
-    // 🔥 map product_id -> article_code
-    const productIds = Array.from(new Set(orderDetails.map((d: any) => d.product_id)));
+    const productIds = Array.from(
+      new Set(orderDetails.map((d: any) => Number(d.product_id))),
+    );
 
     const products = await this.productRepo.find({
       where: {
@@ -538,25 +550,57 @@ export class PackingService {
       },
     });
 
-    const codeById = new Map(products.map((p: any) => [p.id, p.article_code]));
+    const codeById = new Map<number, string>();
 
-    // 🔥 scan map
+    for (const product of products) {
+      codeById.set(
+        Number(product.id),
+        normalizeCode(product.article_code),
+      );
+    }
+
+    /**
+     * Mapa de escaneos:
+     * codigo normalizado + talla normalizada
+     */
     const scanMap = new Map<string, number>();
-    escaneos.forEach((escaneo: any) => {
-      const key = `${escaneo.codigo_producto}|${escaneo.talla}`;
-      scanMap.set(key, (scanMap.get(key) || 0) + Number(escaneo.cantidad));
-    });
+
+    for (const escaneo of escaneos as any[]) {
+      const codigo = normalizeCode(escaneo.codigo_producto);
+      const talla = normalizeSize(escaneo.talla);
+
+      const key = `${codigo}|${talla}`;
+
+      scanMap.set(
+        key,
+        (scanMap.get(key) || 0) + Number(escaneo.cantidad || 0),
+      );
+    }
 
     const status = orderDetails.map((detail: any) => {
-      const code = codeById.get(detail.product_id);
-      const key = `${code}|${detail.size}`;
+      const codigo = codeById.get(Number(detail.product_id));
 
-      const escaneado = scanMap.get(key) || 0;
-      const solicitado = Number(detail.quantity);
+      if (!codigo) {
+        return {
+          codigo: null,
+          talla: normalizeSize(detail.size),
+          escaneado: 0,
+          solicitado: Number(detail.quantity || 0),
+          completo: false,
+          warning: `Producto ID ${detail.product_id} no encontrado`,
+        };
+      }
+
+      const talla = normalizeSize(detail.size);
+
+      const key = `${codigo}|${talla}`;
+
+      const escaneado = Number(scanMap.get(key) || 0);
+      const solicitado = Number(detail.quantity || 0);
 
       return {
-        codigo: code,
-        talla: detail.size,
+        codigo,
+        talla,
         escaneado,
         solicitado,
         completo: escaneado >= solicitado,
