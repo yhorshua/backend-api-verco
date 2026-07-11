@@ -21,6 +21,7 @@ import { UpdateWebSaleDto } from './dto/updateWebSaleDto';
 import { DeliverSaleDto } from './dto/deliverySaleDto';
 import { EfactService } from 'src/efactService/efact.service';
 import type { Response } from 'express';
+import { ExchangeWebSaleDto } from './dto/exchange-web-sale.dto';
 
 @Controller('websales')
 export class WebSaleController {
@@ -82,7 +83,7 @@ export class WebSaleController {
   }
 
 
-   // @UseGuards(JwtAuthGuard)
+  // @UseGuards(JwtAuthGuard)
   @Post(':id/boleta')
   async generateBoleta(@Param('id') id: string) {
     return this.efactService.generateBoletaFromWebSale(Number(id));
@@ -103,6 +104,15 @@ export class WebSaleController {
     );
 
     return res.send(pdfBuffer);
+  }
+
+  @Patch(':id/exchange')
+  exchangeProduct(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: ExchangeWebSaleDto,
+    @Req() req: any,
+  ) {
+    return this.webSaleService.exchangeProduct(id, dto, req.user);
   }
 
 }
