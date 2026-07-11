@@ -110,7 +110,7 @@ export class SaleService {
         where: {
           product_id: newProductId,
           warehouse_id: warehouseId,
-          product_size_id: newProductSizeId
+          product_size_id: oldProductSizeId
         }
       });
 
@@ -130,8 +130,12 @@ export class SaleService {
         throw new NotFoundException('Original stock not found');
       }
 
-      oldStock.quantity += quantity;
-      await manager.save(oldStock);
+      const oldPreviousQuantity = Number(oldStock.quantity);
+      const oldNewQuantity = oldPreviousQuantity + quantity;
+
+      oldStock.quantity = oldNewQuantity;
+
+      await manager.save(Stock, oldStock);
 
       /** 6️⃣ ACTUALIZAR DETALLE ORIGINAL */
       saleDetail.quantity -= quantity;
@@ -147,41 +151,65 @@ export class SaleService {
         sale_id: saleId,
         product_id: newProductId,
         product_size_id: newProductSizeId,
-        quantity: quantity,
-        unit_price: newProductPrice
+        quantity,
+        unit_price: newProductPrice,
       });
 
-      await manager.save(newSaleDetail);
+      await manager.save(SaleDetail, newSaleDetail);
 
       /** 8️⃣ DESCONTAR STOCK NUEVO PRODUCTO */
-      newStock.quantity -= quantity;
-      await manager.save(newStock);
+      const newPreviousQuantity = Number(newStock.quantity);
+      const newFinalQuantity = newPreviousQuantity - quantity;
+
+      newStock.quantity = newFinalQuantity;
+
+      await manager.save(Stock, newStock);
 
       /** 9️⃣ MOVIMIENTO STOCK DEVOLUCIÓN */
       const stockIn = manager.create(StockMovement, {
         warehouse_id: warehouseId,
         product_id: productId,
         product_size_id: oldProductSizeId,
-        quantity: quantity,
+
+        quantity,
+        previous_quantity: oldPreviousQuantity,
+        new_quantity: oldNewQuantity,
+
+        unit_of_measure: 'PAR',
         movement_type: 'entrada',
+
+        reference_id: sale.id,
+        reference_type: 'SALE_EXCHANGE',
         reference: `Cambio producto venta ${sale.sale_code}`,
-        user_id: sale.user_id
+
+        notes: 'Ingreso del producto anterior por cambio',
+        user_id: sale.user_id,
       });
 
-      await manager.save(stockIn);
+      await manager.save(StockMovement, stockIn);
 
       /** 🔟 MOVIMIENTO STOCK SALIDA NUEVO PRODUCTO */
       const stockOut = manager.create(StockMovement, {
         warehouse_id: warehouseId,
         product_id: newProductId,
         product_size_id: newProductSizeId,
+
         quantity: -quantity,
+        previous_quantity: newPreviousQuantity,
+        new_quantity: newFinalQuantity,
+
+        unit_of_measure: 'PAR',
         movement_type: 'salida',
+
+        reference_id: sale.id,
+        reference_type: 'SALE_EXCHANGE',
         reference: `Cambio producto venta ${sale.sale_code}`,
-        user_id: sale.user_id
+
+        notes: 'Salida del nuevo producto por cambio',
+        user_id: sale.user_id,
       });
 
-      await manager.save(stockOut);
+      await manager.save(StockMovement, stockOut);
 
       /** 1️⃣1️⃣ DIFERENCIA DE PRECIO */
       const difference =
@@ -296,16 +324,34 @@ export class SaleService {
       }
 
       // 7️⃣ REGISTRAR MOVIMIENTO DE STOCK
+      const previousQuantity = Number(stock.quantity);
+      const newQuantity = previousQuantity + quantity;
+
+      stock.quantity = newQuantity;
+
+      await manager.save(Stock, stock);
+
       const stockMovement = manager.create(StockMovement, {
         warehouse_id: warehouseId,
         product_id: productId,
-        quantity: quantity,
+        product_size_id: saleDetail.product_size_id,
+
+        quantity,
+        previous_quantity: previousQuantity,
+        new_quantity: newQuantity,
+
+        unit_of_measure: 'PAR',
         movement_type: 'entrada',
+
+        reference_id: sale.id,
+        reference_type: 'SALE_RETURN',
         reference: `Devolución de venta ${sale.sale_code}`,
+
+        notes: reason || 'Devolución de producto',
         user_id: sale.user_id,
       });
 
-      await manager.save(stockMovement);
+      await manager.save(StockMovement, stockMovement);
 
       // 8️⃣ CALCULAR MONTO DE DEVOLUCIÓN
       const totalRefund = Number((priceAtReturn * quantity).toFixed(2));
@@ -317,15 +363,13 @@ export class SaleService {
         product_id: productId,
         warehouse_id: warehouseId,
         user_id: sale.user_id,
-
-        quantity: quantity,
+        quantity,
         unit_price: priceAtReturn,
         total_refund: totalRefund,
-
         reason: reason || undefined,
       });
 
-      await this.saleReturnRepository.save(saleReturn);
+      await manager.save(SaleReturn, saleReturn);
 
       // 🔟 BUSCAR CAJA ABIERTA
       const session = await manager.findOne(CashRegisterSession, {

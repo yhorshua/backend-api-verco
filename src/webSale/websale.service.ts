@@ -20,6 +20,7 @@ import { WebSalesReportFiltersDto } from './dto/web-sales-report.dto';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { DASHBOARD_EVENTS } from '../dashCounter/dto/dashboard-events.constants';
 import { Product } from 'src/database/entities/product.entity';
+import { ExchangeWebSaleDto } from './dto/exchange-web-sale.dto';
 
 @Injectable()
 export class WebSaleService {
@@ -1128,6 +1129,130 @@ export class WebSaleService {
       resumen_por_talla: tallas,
 
       detalle_ventas: detalleVentas,
+    };
+  }
+
+  async exchangeProduct(
+    saleId: number,
+    dto: ExchangeWebSaleDto,
+    user: any
+  ) {
+    const sale = await this.saleRepository.findOne({
+      where: { id: saleId },
+      relations: [
+        'details',
+        'details.product',
+        'details.productSize',
+        'user',
+        'user.role',
+      ],
+    });
+
+    if (!sale) {
+      throw new NotFoundException('Venta no encontrada');
+    }
+
+    const roleName = user?.role?.name_role || user?.role;
+
+    const allowedRoles = [
+      'Administrador',
+      'Jefe Ventas',
+      'Almacenero',
+      'Delivery',
+      'Vendedor Web',
+    ];
+
+    if (!allowedRoles.includes(roleName)) {
+      throw new ForbiddenException(
+        'No tienes permisos para realizar cambios de producto'
+      );
+    }
+
+    const oldDetail = sale.details.find(
+      detail => Number(detail.id) === Number(dto.detail_id)
+    );
+
+    if (!oldDetail) {
+      throw new BadRequestException(
+        'El detalle seleccionado no pertenece a esta venta'
+      );
+    }
+
+    if (oldDetail.detail_status === DetailStatus.DEVUELTO) {
+      throw new BadRequestException(
+        'Este producto ya fue devuelto anteriormente'
+      );
+    }
+
+    const newProduct = await this.productRepository.findOne({
+      where: { id: dto.new_product_id },
+    });
+
+    if (!newProduct) {
+      throw new NotFoundException(
+        `No se encontró el nuevo producto con ID ${dto.new_product_id}`
+      );
+    }
+
+    const quantity = Number(dto.quantity || oldDetail.quantity || 1);
+    const salePrice = Number(dto.new_sale_price || oldDetail.sale_price || 0);
+    const subtotal = Number((quantity * salePrice).toFixed(2));
+
+    /**
+     * 1. Marcar producto anterior como devuelto
+     */
+    oldDetail.detail_status = DetailStatus.DEVUELTO;
+    oldDetail.final_amount = 0;
+    oldDetail.returned_at = new Date();
+
+    await this.detailRepository.save(oldDetail);
+
+    /**
+     * 2. Crear nuevo detalle como vendido
+     */
+    const newDetail = this.detailRepository.create({
+      sale,
+      product_id: dto.new_product_id,
+      product_size_id: dto.new_product_size_id,
+      size: dto.new_size,
+      quantity,
+      sale_price: salePrice,
+      subtotal,
+      final_amount: subtotal,
+      detail_status: DetailStatus.VENDIDO,
+      sold_at: new Date(),
+      purchase_price_at_sale: Number(newProduct.factory_price ?? 0),
+    });
+
+    const savedNewDetail = await this.detailRepository.save(newDetail);
+
+    /**
+     * 3. Recalcular total real de la venta
+     */
+    const allDetails = await this.detailRepository.find({
+      where: {
+        sale: { id: sale.id },
+      },
+    });
+
+    const newTotal = allDetails.reduce((sum, detail) => {
+      if (detail.detail_status === DetailStatus.VENDIDO) {
+        return sum + Number(detail.final_amount ?? detail.subtotal ?? 0);
+      }
+
+      return sum;
+    }, 0);
+
+    sale.total_amount = Number(newTotal.toFixed(2));
+
+    await this.saleRepository.save(sale);
+
+    return {
+      message: 'Cambio de producto registrado correctamente',
+      sale_id: sale.id,
+      old_detail_id: oldDetail.id,
+      new_detail_id: savedNewDetail.id,
+      total_amount: sale.total_amount,
     };
   }
 }
