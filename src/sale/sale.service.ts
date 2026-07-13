@@ -108,14 +108,22 @@ export class SaleService {
       /** 4️⃣ BUSCAR STOCK DEL NUEVO PRODUCTO */
       const newStock = await manager.findOne(Stock, {
         where: {
-          product_id: newProductId,
-          warehouse_id: warehouseId,
-          product_size_id: oldProductSizeId
-        }
+          product_id: Number(newProductId),
+          warehouse_id: Number(warehouseId),
+          product_size_id: Number(newProductSizeId),
+        },
       });
 
-      if (!newStock || newStock.quantity < quantity) {
-        throw new BadRequestException('Insufficient stock for new product');
+      if (!newStock) {
+        throw new NotFoundException(
+          `Stock no encontrado para producto ${newProductId}, talla ${newProductSizeId}, almacén ${warehouseId}`
+        );
+      }
+
+      if (Number(newStock.quantity) < Number(quantity)) {
+        throw new BadRequestException(
+          `Stock insuficiente. Disponible: ${newStock.quantity}, solicitado: ${quantity}`
+        );
       }
       /** 5️⃣ DEVOLVER STOCK DEL PRODUCTO ORIGINAL */
       const oldStock = await manager.findOne(Stock, {
@@ -153,6 +161,7 @@ export class SaleService {
         product_size_id: newProductSizeId,
         quantity,
         unit_price: newProductPrice,
+        subtotal: Number((newProductPrice * quantity).toFixed(2)),
       });
 
       await manager.save(SaleDetail, newSaleDetail);
@@ -214,6 +223,15 @@ export class SaleService {
       /** 1️⃣1️⃣ DIFERENCIA DE PRECIO */
       const difference =
         (newProductPrice - oldProductPrice) * quantity;
+
+      sale.total_amount = Number(
+        (
+          Number(sale.total_amount || 0) +
+          Number(difference || 0)
+        ).toFixed(2)
+      );
+
+      await manager.save(Sale, sale);
 
       let message = 'Producto cambiado correctamente';
 
