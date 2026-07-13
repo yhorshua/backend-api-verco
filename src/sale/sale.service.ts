@@ -224,14 +224,20 @@ export class SaleService {
       const difference =
         (newProductPrice - oldProductPrice) * quantity;
 
-      sale.total_amount = Number(
+      const updatedTotalAmount = Number(
         (
           Number(sale.total_amount || 0) +
           Number(difference || 0)
         ).toFixed(2)
       );
 
-      await manager.save(Sale, sale);
+      await manager.update(
+        Sale,
+        { id: sale.id },
+        { total_amount: updatedTotalAmount }
+      );
+
+      sale.total_amount = updatedTotalAmount;
 
       let message = 'Producto cambiado correctamente';
 
