@@ -23,6 +23,7 @@ import { ProductSize } from 'src/database/entities/product-size.entity';
 import { Product } from 'src/database/entities/product.entity';
 import moment, { now } from 'moment-timezone';
 import { UpdateProductDto } from './dto/create-product.dto';
+import { StockMovementReportDto } from './dto/stockMovementReport.dto';
 
 @Injectable()
 export class StockService {
@@ -1001,4 +1002,413 @@ export class StockService {
       };
     });
   }
+
+async getStockMovementReport(
+  filters: StockMovementReportDto,
+) {
+  const {
+    warehouseId,
+    startDate,
+    endDate,
+  } = filters;
+
+  const movements = await this.movementRepo
+    .createQueryBuilder('movement')
+    .leftJoinAndSelect(
+      'movement.warehouse',
+      'warehouse',
+    )
+    .leftJoinAndSelect(
+      'movement.product',
+      'product',
+    )
+    .leftJoinAndSelect(
+      'movement.productSize',
+      'productSize',
+    )
+    .leftJoinAndSelect(
+      'movement.user',
+      'user',
+    )
+    .where(
+      'movement.warehouse_id = :warehouseId',
+      {
+        warehouseId: Number(warehouseId),
+      },
+    )
+    .andWhere(
+      'movement.created_at >= :startDate',
+      {
+        startDate: `${startDate} 00:00:00`,
+      },
+    )
+    .andWhere(
+      'movement.created_at < DATE_ADD(:endDate, INTERVAL 1 DAY)',
+      {
+        endDate,
+      },
+    )
+    .orderBy(
+      'movement.created_at',
+      'DESC',
+    )
+    .getMany();
+
+  let quantityEntered = 0;
+  let quantityExited = 0;
+
+  let totalEntries = 0;
+  let totalExits = 0;
+  let totalAdjustments = 0;
+
+  const summaryByProduct: Record<string, any> = {};
+  const summaryByUser: Record<string, any> = {};
+  const summaryByType: Record<string, any> = {};
+
+  const detail = movements.map((movement) => {
+    const quantity = Number(
+      movement.quantity || 0,
+    );
+
+    const movementType = String(
+      movement.movement_type || 'sin_tipo',
+    ).toLowerCase();
+
+    if (movementType === 'entrada') {
+      totalEntries++;
+      quantityEntered += Math.abs(quantity);
+    }
+
+    if (movementType === 'salida') {
+      totalExits++;
+      quantityExited += Math.abs(quantity);
+    }
+
+    if (movementType === 'ajuste') {
+      totalAdjustments++;
+
+      if (quantity >= 0) {
+        quantityEntered += quantity;
+      } else {
+        quantityExited += Math.abs(quantity);
+      }
+    }
+
+    /**
+     * RESUMEN POR PRODUCTO
+     */
+    const productKey = String(
+      movement.product_id,
+    );
+
+    if (!summaryByProduct[productKey]) {
+      summaryByProduct[productKey] = {
+        product_id: movement.product_id,
+        article_code:
+          movement.product?.article_code || '',
+        article_description:
+          movement.product?.article_description || '',
+        brand_name:
+          movement.product?.brand_name || '',
+        total_movements: 0,
+        total_entered: 0,
+        total_exited: 0,
+        net_movement: 0,
+        sizes: {},
+      };
+    }
+
+    const productSummary =
+      summaryByProduct[productKey];
+
+    productSummary.total_movements++;
+
+    if (quantity > 0) {
+      productSummary.total_entered += quantity;
+    }
+
+    if (quantity < 0) {
+      productSummary.total_exited +=
+        Math.abs(quantity);
+    }
+
+    productSummary.net_movement += quantity;
+
+    const sizeValue =
+      movement.productSize?.size ??
+      'SIN-TALLA';
+
+    if (!productSummary.sizes[sizeValue]) {
+      productSummary.sizes[sizeValue] = {
+        size: sizeValue,
+        product_size_id:
+          movement.product_size_id,
+        total_entered: 0,
+        total_exited: 0,
+        net_movement: 0,
+      };
+    }
+
+    if (quantity > 0) {
+      productSummary
+        .sizes[sizeValue]
+        .total_entered += quantity;
+    }
+
+    if (quantity < 0) {
+      productSummary
+        .sizes[sizeValue]
+        .total_exited += Math.abs(quantity);
+    }
+
+    productSummary
+      .sizes[sizeValue]
+      .net_movement += quantity;
+
+    /**
+     * RESUMEN POR USUARIO
+     */
+    const userKey = String(
+      movement.user_id ?? 0,
+    );
+
+    if (!summaryByUser[userKey]) {
+      summaryByUser[userKey] = {
+        user_id: movement.user_id,
+        full_name:
+          movement.user?.full_name ||
+          'Sin usuario',
+        email:
+          movement.user?.email || '',
+        total_movements: 0,
+        total_entered: 0,
+        total_exited: 0,
+        total_adjustments: 0,
+      };
+    }
+
+    const userSummary =
+      summaryByUser[userKey];
+
+    userSummary.total_movements++;
+
+    if (quantity > 0) {
+      userSummary.total_entered += quantity;
+    }
+
+    if (quantity < 0) {
+      userSummary.total_exited +=
+        Math.abs(quantity);
+    }
+
+    if (movementType === 'ajuste') {
+      userSummary.total_adjustments++;
+    }
+
+    /**
+     * RESUMEN POR TIPO
+     */
+    if (!summaryByType[movementType]) {
+      summaryByType[movementType] = {
+        movement_type: movementType,
+        total_movements: 0,
+        total_quantity: 0,
+      };
+    }
+
+    summaryByType[movementType]
+      .total_movements++;
+
+    summaryByType[movementType]
+      .total_quantity += Math.abs(quantity);
+
+    return {
+      id: movement.id,
+      created_at: movement.created_at,
+
+      warehouse: {
+        id: movement.warehouse_id,
+        name:
+          movement.warehouse
+            ?.warehouse_name || '',
+        location:
+          movement.warehouse
+            ?.location || '',
+      },
+
+      user: {
+        id: movement.user_id,
+        full_name:
+          movement.user?.full_name ||
+          'Sin usuario',
+        email:
+          movement.user?.email || '',
+      },
+
+      product: {
+        id: movement.product_id,
+        article_code:
+          movement.product
+            ?.article_code || '',
+        article_description:
+          movement.product
+            ?.article_description || '',
+        brand_name:
+          movement.product
+            ?.brand_name || '',
+        model_code:
+          movement.product
+            ?.model_code || '',
+        color:
+          movement.product?.color || '',
+      },
+
+      size: {
+        product_size_id:
+          movement.product_size_id,
+        value:
+          movement.productSize?.size ??
+          null,
+      },
+
+      movement: {
+        type: movement.movement_type,
+
+        direction:
+          quantity >= 0
+            ? 'INGRESO'
+            : 'SALIDA',
+
+        quantity,
+        absolute_quantity:
+          Math.abs(quantity),
+
+        unit_of_measure:
+          movement.unit_of_measure,
+
+        previous_quantity:
+          Number(
+            movement.previous_quantity ||
+            0,
+          ),
+
+        new_quantity:
+          Number(
+            movement.new_quantity || 0,
+          ),
+      },
+
+      reference: {
+        reference_id:
+          movement.reference_id,
+
+        reference_type:
+          movement.reference_type,
+
+        reference:
+          movement.reference,
+
+        notes:
+          movement.notes,
+      },
+    };
+  });
+
+  return {
+    filters: {
+      warehouse_id:
+        Number(warehouseId),
+      start_date: startDate,
+      end_date: endDate,
+    },
+
+    warehouse: movements.length
+      ? {
+          id:
+            movements[0].warehouse_id,
+          name:
+            movements[0].warehouse
+              ?.warehouse_name || '',
+          location:
+            movements[0].warehouse
+              ?.location || '',
+        }
+      : {
+          id: Number(warehouseId),
+          name: '',
+          location: '',
+        },
+
+    summary: {
+      total_movements:
+        movements.length,
+
+      total_entries:
+        totalEntries,
+
+      total_exits:
+        totalExits,
+
+      total_adjustments:
+        totalAdjustments,
+
+      quantity_entered:
+        Number(
+          quantityEntered.toFixed(2),
+        ),
+
+      quantity_exited:
+        Number(
+          quantityExited.toFixed(2),
+        ),
+
+      net_movement:
+        Number(
+          (
+            quantityEntered -
+            quantityExited
+          ).toFixed(2),
+        ),
+    },
+
+    summary_by_type:
+      Object.values(summaryByType),
+
+    summary_by_user:
+      Object.values(summaryByUser),
+
+    summary_by_product:
+      Object.values(
+        summaryByProduct,
+      ).map((product: any) => ({
+        ...product,
+
+        total_entered:
+          Number(
+            product.total_entered
+              .toFixed(2),
+          ),
+
+        total_exited:
+          Number(
+            product.total_exited
+              .toFixed(2),
+          ),
+
+        net_movement:
+          Number(
+            product.net_movement
+              .toFixed(2),
+          ),
+
+        sizes:
+          Object.values(
+            product.sizes,
+          ),
+      })),
+
+    movements: detail,
+  };
+}
+
 }

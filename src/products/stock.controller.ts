@@ -1,8 +1,9 @@
-import { Controller, Get, Post, Body, Param, UseGuards, Req } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, UseGuards, Req, Query } from '@nestjs/common';
 import { StockService } from './stock.service';
 import { CreateMovementDto } from './dto/create-movement.dto';
 import { CreateSaleDto } from './dto/create-sale.dto';
 import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
+import { StockMovementReportDto } from './dto/stockMovementReport.dto';
 
 type RegisterStockMultipleDto = {
   warehouseId: number;
@@ -19,27 +20,27 @@ type RegisterStockMultipleDto = {
 export class StockController {
   constructor(private readonly stockService: StockService) { }
 
-@UseGuards(JwtAuthGuard)
-@Post('register-multiple')
-async registerStockForMultipleItems(
-  @Body() stockDto: RegisterStockMultipleDto,
-  @Req() req: any,
-) {
-  const { warehouseId, products, guideId, guideNumber } = stockDto;
+  @UseGuards(JwtAuthGuard)
+  @Post('register-multiple')
+  async registerStockForMultipleItems(
+    @Body() stockDto: RegisterStockMultipleDto,
+    @Req() req: any,
+  ) {
+    const { warehouseId, products, guideId, guideNumber } = stockDto;
 
-  const userId =
+    const userId =
       req.user?.userId ||
       req.user?.id ||
       req.user?.sub;
 
-  return await this.stockService.registerStockForMultipleItems(
-    Number(warehouseId),
-    products,
-    userId,
-    guideId ? Number(guideId) : undefined,
-    guideNumber,
-  );
-}
+    return await this.stockService.registerStockForMultipleItems(
+      Number(warehouseId),
+      products,
+      userId,
+      guideId ? Number(guideId) : undefined,
+      guideNumber,
+    );
+  }
 
   @UseGuards(JwtAuthGuard)
   @Get('by-warehouse/:warehouseId/article/:articleCode')
@@ -90,6 +91,15 @@ async registerStockForMultipleItems(
       body.userId,
       body.items,
     );
+  }
+
+  @Get('movements/report')
+  getStockMovementReport(
+    @Query() filters: StockMovementReportDto
+    ,
+  ) {
+    return this.stockService
+      .getStockMovementReport(filters);
   }
   /*
     @Post('incoming')
