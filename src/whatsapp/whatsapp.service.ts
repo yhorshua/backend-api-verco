@@ -1,16 +1,35 @@
 import {
   Injectable,
   InternalServerErrorException,
+  Module,
   ServiceUnavailableException,
 } from '@nestjs/common';
 
-import { HttpService } from '@nestjs/axios';
+import { HttpModule, HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
-import { InjectRepository } from '@nestjs/typeorm';
+import { InjectRepository, TypeOrmModule } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Lead } from '../database/entities/lead.entity';
 import { Mensaje } from 'src/database/entities/mensaje.entity';
 
+@Module({
+  imports: [
+    HttpModule,
+
+    TypeOrmModule.forFeature([
+      Lead,
+      Mensaje,
+    ]),
+  ],
+
+  providers: [
+    WhatsAppService,
+  ],
+
+  exports: [
+    WhatsAppService,
+  ],
+})
 
 @Injectable()
 export class WhatsAppService {
