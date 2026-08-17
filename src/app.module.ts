@@ -60,12 +60,16 @@ import { SaldoFavorCliente } from './database/entities/saldoFavorCliente';
 import { AbonoDetalle } from './database/entities/abonoDetalle.entity';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { DashboardModule } from './dashCounter/dashCounter.module';
-import { WhatsappModule } from './whatsapp/whatsapp.module';
+import { WhatsAppModule } from './whatsapp/whatsapp.module';
 import { ProductImage } from './database/entities/productImage.entity';
 import { OrdersHistorial } from './database/entities/orders-historial.entity';
 import { GuiaInternaDevolucion } from './database/entities/guia-interna-devolucion.entity';
 import { GuiaInternaDevolucionDetalle } from './database/entities/guia-interna-devolucion-detalle.entity';
 import { WebSaleInvoice } from './database/entities/webSaleInvoices';
+import { Asesor } from './database/entities/asesor.entity';
+import { Lead } from './database/entities/lead.entity';
+import { Mensaje } from './database/entities/mensaje.entity';
+import { MetaWebhookModule } from './meta/meta.module';
 
 @Module({
   imports: [
@@ -130,6 +134,9 @@ import { WebSaleInvoice } from './database/entities/webSaleInvoices';
         OrdersHistorial,
         SaldoFavorCliente,
         WebSaleInvoice,
+        Asesor,
+        Lead,
+        Mensaje,
       ],
     }),
 
@@ -153,7 +160,8 @@ import { WebSaleInvoice } from './database/entities/webSaleInvoices';
     WebSaleModule,
     EstadoCuentaModule,
     DashboardModule,
-    WhatsappModule,
+    WhatsAppModule,
+    MetaWebhookModule,
   ],
   controllers: [AppController],
   providers: [AppService],

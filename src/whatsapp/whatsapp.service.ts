@@ -1,45 +1,147 @@
-import { Injectable, Logger } from '@nestjs/common';
-import axios from 'axios';
+import {
+  Injectable,
+  InternalServerErrorException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
+
+import { HttpService } from '@nestjs/axios';
+import { firstValueFrom } from 'rxjs';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { Lead } from '../database/entities/lead.entity';
+import { Mensaje } from 'src/database/entities/mensaje.entity';
+
 
 @Injectable()
-export class WhatsappService {
-
-  private readonly logger = new Logger(WhatsappService.name);
-
-  private readonly token = process.env.WHATSAPP_TOKEN;
-
-  private readonly phoneNumberId =
-    process.env.WHATSAPP_PHONE_NUMBER_ID;
+export class WhatsAppService {
 
 
-  async sendMessage(to: string, message: string) {
+  constructor(
+    private readonly httpService: HttpService,
 
-    try {
+    @InjectRepository(Lead)
+    private readonly leadRepo: Repository<Lead>,
 
-      await axios.post(
+    @InjectRepository(Mensaje)
+    private readonly mensajeRepo: Repository<Mensaje>,
+  ) { }
 
-        `https://graph.facebook.com/v23.0/${this.phoneNumberId}/messages`,
+  async enviarMensaje(
+    leadId: number,
+    mensaje: string
+  ) {
 
-        {
-          messaging_product: 'whatsapp',
-          to,
-          type: 'text',
-          text: {
-            body: message,
-          },
-        },
+    const leadEncontrado =
+      await this.leadRepo.findOne({
+        where: {
+          id: leadId
+        }
+      });
 
-        {
-          headers: {
-            Authorization: `Bearer ${this.token}`,
-            'Content-Type': 'application/json',
-          },
-        },
+
+    if (!leadEncontrado) {
+      throw new InternalServerErrorException(
+        'Lead no encontrado'
+      );
+    }
+
+
+    const lead = leadEncontrado;
+
+    const token =
+      process.env.META_WHATSAPP_ACCESS_TOKEN;
+
+    const version =
+      process.env.META_GRAPH_API_VERSION;
+    const phoneNumberId =
+      process.env.META_PHONE_NUMBER_ID;
+
+    if (
+      !token ||
+      !version ||
+      !phoneNumberId
+    ) {
+
+      throw new InternalServerErrorException(
+        'Configuración Meta incompleta'
       );
 
-    } catch (e: any) {
+    }
+    const url =
+      `https://graph.facebook.com/${version}/${phoneNumberId}/messages`;
+    try {
 
-      this.logger.error(e.response?.data || e.message);
+
+      const response =
+        await firstValueFrom(
+
+          this.httpService.post(
+
+            url,
+
+            {
+              messaging_product: 'whatsapp',
+
+              recipient_type: 'individual',
+
+              to: lead.telefono,
+
+              type: 'text',
+
+              text: {
+                body: mensaje
+              }
+            },
+
+            {
+              headers: {
+
+                Authorization:
+                  `Bearer ${token}`,
+                'Content-Type':
+                  'application/json'
+
+              }
+
+            }
+
+          )
+
+        );
+
+        const mensajeGuardado =
+        this.mensajeRepo.create({
+
+          lead_id: lead.id,
+
+          direccion: 'SALIENTE',
+
+          tipo: 'text',
+
+          contenido: mensaje,
+
+          meta_message_id:
+            response.data.messages[0].id
+
+        });
+
+
+      await this.mensajeRepo.save(
+        mensajeGuardado
+      );
+      return response.data;
+
+      
+    }
+    catch (error: any) {
+
+
+      console.log(
+        error.response?.data
+      );
+      throw new ServiceUnavailableException(
+        'Error enviando mensaje WhatsApp'
+      );
 
     }
   }
