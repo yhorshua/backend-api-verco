@@ -109,7 +109,7 @@ export class WhatsAppService {
 
         );
 
-        const mensajeGuardado =
+      const mensajeGuardado =
         this.mensajeRepo.create({
 
           lead_id: lead.id,
@@ -131,7 +131,7 @@ export class WhatsAppService {
       );
       return response.data;
 
-      
+
     }
     catch (error: any) {
 

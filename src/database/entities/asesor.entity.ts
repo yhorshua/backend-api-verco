@@ -18,7 +18,7 @@ export class Asesor {
     name:'id',
     type:'int',
   })
-  id:number;
+  id!:number;
 
 
 
@@ -27,7 +27,7 @@ export class Asesor {
     type:'varchar',
     length:100,
   })
-  nombre:string;
+  nombre!:string;
 
 
 
@@ -37,7 +37,7 @@ export class Asesor {
     length:50,
     unique:true,
   })
-  usuario:string;
+  usuario!:string;
 
 
 
@@ -46,7 +46,7 @@ export class Asesor {
     type:'boolean',
     default:true,
   })
-  activo:boolean;
+  activo!:boolean;
 
 
 
@@ -55,7 +55,7 @@ export class Asesor {
     type:'timestamp',
     nullable:true,
   })
-  fecha_ultima_asignacion:Date | null;
+  fecha_ultima_asignacion!:Date | null;
 
 
 
@@ -63,6 +63,6 @@ export class Asesor {
     ()=>Lead,
     (lead)=>lead.asesor,
   )
-  leads:Lead[];
+  leads!:Lead[];
 
 }

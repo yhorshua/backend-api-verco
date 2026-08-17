@@ -40,21 +40,21 @@ export class Lead {
     name: 'id',
     type: 'int',
   })
-  id: number;
+  id!: number;
 
   @Column({
     name: 'nombre',
     type: 'varchar',
     length: 100,
   })
-  nombre: string;
+  nombre!: string;
 
   @Column({
     name: 'telefono',
     type: 'varchar',
     length: 20,
   })
-  telefono: string;
+  telefono!: string;
 
   /*
    * La propiedad se llama mensaje_inicial,
@@ -64,7 +64,7 @@ export class Lead {
     name: 'mensaje',
     type: 'text',
   })
-  mensaje_inicial: string;
+  mensaje_inicial!: string;
 
   @Column({
     name: 'meta_message_id',
@@ -72,14 +72,14 @@ export class Lead {
     length: 255,
     nullable: true,
   })
-  meta_message_id: string | null;
+  meta_message_id!: string | null;
 
   @Column({
     name: 'asesor_id',
     type: 'int',
     nullable: true,
   })
-  asesor_id: number | null;
+  asesor_id!: number | null;
 
   @Column({
     name: 'origen',
@@ -87,7 +87,7 @@ export class Lead {
     length: 50,
     default: OrigenLeadEnum.WHATSAPP_ORGANICO,
   })
-  origen: OrigenLeadEnum;
+  origen!: OrigenLeadEnum;
 
   @Column({
     name: 'estado',
@@ -95,7 +95,7 @@ export class Lead {
     length: 30,
     default: EstadoLeadEnum.NUEVO,
   })
-  estado: EstadoLeadEnum;
+  estado!: EstadoLeadEnum;
 
   @Column({
     name: 'ad_source_id',
@@ -103,14 +103,14 @@ export class Lead {
     length: 255,
     nullable: true,
   })
-  ad_source_id: string | null;
+  ad_source_id!: string | null;
 
   @Column({
     name: 'ad_source_url',
     type: 'text',
     nullable: true,
   })
-  ad_source_url: string | null;
+  ad_source_url!: string | null;
 
   @Column({
     name: 'ad_headline',
@@ -118,7 +118,7 @@ export class Lead {
     length: 255,
     nullable: true,
   })
-  ad_headline: string | null;
+  ad_headline!: string | null;
 
   @Column({
     name: 'ctwa_clid',
@@ -126,7 +126,7 @@ export class Lead {
     length: 255,
     nullable: true,
   })
-  ctwa_clid: string | null;
+  ctwa_clid!: string | null;
 
   /*
    * La propiedad se llama fecha_registro,
@@ -137,7 +137,7 @@ export class Lead {
     type: 'timestamp',
     default: () => 'CURRENT_TIMESTAMP',
   })
-  fecha_registro: Date;
+  fecha_registro!: Date;
 
   @ManyToOne(
     () => Asesor,
@@ -152,5 +152,5 @@ export class Lead {
     name: 'asesor_id',
     referencedColumnName: 'id',
   })
-  asesor: Asesor | null;
+  asesor!: Asesor | null;
 }
