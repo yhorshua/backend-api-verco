@@ -9,12 +9,14 @@ import { MetaWebhookService } from './meta.service';
 import { Asesor } from 'src/database/entities/asesor.entity';
 import { Lead } from 'src/database/entities/lead.entity';
 import { NotificacionGateway } from 'src/meta/notificacion.gateway';
+import { Mensaje } from 'src/database/entities/mensaje.entity';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([
       Asesor,
       Lead,
+      Mensaje,
     ]),
 
     HttpModule.register({
@@ -23,10 +25,10 @@ import { NotificacionGateway } from 'src/meta/notificacion.gateway';
     }),
   ],
   controllers: [MetaWebhookController],
-  providers:[
- MetaWebhookService,
- NotificacionGateway
-],
+  providers: [
+    MetaWebhookService,
+    NotificacionGateway
+  ],
   exports: [MetaWebhookService],
 })
-export class MetaWebhookModule {}
+export class MetaWebhookModule { }
