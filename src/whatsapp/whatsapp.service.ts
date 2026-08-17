@@ -12,25 +12,6 @@ import { Repository } from 'typeorm';
 import { Lead } from '../database/entities/lead.entity';
 import { Mensaje } from 'src/database/entities/mensaje.entity';
 
-@Module({
-  imports: [
-    HttpModule,
-
-    TypeOrmModule.forFeature([
-      Lead,
-      Mensaje,
-    ]),
-  ],
-
-  providers: [
-    WhatsAppService,
-  ],
-
-  exports: [
-    WhatsAppService,
-  ],
-})
-
 @Injectable()
 export class WhatsAppService {
 
