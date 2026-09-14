@@ -12,6 +12,7 @@ export class CreateOrderDto {
   @IsInt()
   warehouse_id!: number;
 
+  @Type(() => Number)
   @IsOptional()
   @IsInt()
   @Min(1)
