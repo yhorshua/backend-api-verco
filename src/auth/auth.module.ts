@@ -22,7 +22,7 @@ import { AuthController } from './auth.controller';
   ],
   providers: [AuthService, JwtStrategy],
   controllers: [AuthController], // <-- CONTROLLER incluido
-  exports: [AuthService],
+  exports: [AuthService, JwtModule],
 })
 export class AuthModule {}
 

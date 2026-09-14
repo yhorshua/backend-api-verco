@@ -8,11 +8,12 @@ import { ProductSize } from 'src/database/entities/product-size.entity';
 import { Series } from 'src/database/entities/series.entity';
 import { Category } from 'src/database/entities/categories.entity';
 import { ProductImage } from 'src/database/entities/productImage.entity';
+import { RolesGuard } from '../auth/roles.guard';
 
 @Module({
   imports: [TypeOrmModule.forFeature([Product, Stock, ProductSize, Series, Category, ProductImage])], // 👈 registra repositorios
   controllers: [ProductsController],
-  providers: [ProductsService],
+  providers: [ProductsService, RolesGuard],
   exports: [ProductsService], // opcional si otros módulos usan ProductsService
 })
 export class ProductsModule {}

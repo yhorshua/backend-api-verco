@@ -6,6 +6,8 @@ import { UpdateProductDto } from './dto/update-product.dto';
 import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { UpdateProductPricesDto } from './dto/update-product-prices.dto';
+import { RolesGuard } from '../auth/roles.guard';
+import { Roles } from '../auth/roles.decorator';
 
 @Controller('products')
 export class ProductsController {
@@ -76,7 +78,8 @@ export class ProductsController {
 
 
   @Post('import-stock')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('Administrador')
   @UseInterceptors(FileInterceptor('file'))
   async importStockExcel(
     @UploadedFile() file: any,

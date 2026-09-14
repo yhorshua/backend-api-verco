@@ -1,5 +1,5 @@
 // src/modules/orders/dto/create-order.dto.ts
-import { IsArray, IsIn, IsInt, IsNumber, IsOptional, IsString, ValidateNested } from 'class-validator';
+import { IsArray, IsIn, IsInt, IsNumber, IsOptional, IsString, Min, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class CreateOrderDto {
@@ -11,6 +11,11 @@ export class CreateOrderDto {
 
   @IsInt()
   warehouse_id!: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  quotation_id?: number;
 
   @IsOptional()
   @IsString()
@@ -60,14 +65,23 @@ class CreateOrderItemDto {
   product_id!: number;
 
   @IsOptional()
+  @IsInt()
+  @Min(1)
+  quotation_detail_id?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
   product_size_id?: number | null;
 
   @IsString()
   size!: string;
 
-  @IsNumber()
+  @IsInt()
+  @Min(1)
   quantity!: number;
 
   @IsNumber()
+  @Min(0)
   unit_price!: number;
 }

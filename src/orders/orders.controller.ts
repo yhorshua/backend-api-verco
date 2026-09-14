@@ -1,23 +1,25 @@
 import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { OrdersService } from './orders.service';
 import { CreateOrderDto } from './dto/CreateOrderDto';
-import { ApproveOrderDto } from './dto/approve-order.dto';
 import { RejectOrderDto } from './dto/reject-order.dto';
 import { ListOrdersDto } from './dto/list-orders.dto';
 import { ListOrdersAdvancedDto } from './dto/list-orders-advanced.dto';
 import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
+import { RolesGuard } from '../auth/roles.guard';
+import { Roles } from '../auth/roles.decorator';
 
 @Controller('orders')
+@UseGuards(JwtAuthGuard, RolesGuard)
 export class OrdersController {
   constructor(private readonly service: OrdersService) { }
 
   @Post()
-  create(@Body() dto: CreateOrderDto) {
-    return this.service.createOrderAndReserveStock(dto);
+  @Roles('Administrador', 'Jefe Ventas', 'Vendedor', 'Vendedor Web')
+  create(@Body() dto: CreateOrderDto, @Req() req: any) {
+    return this.service.createOrderAndReserveStock(dto, req.user);
   }
 
   @Get('by-role')
-  @UseGuards(JwtAuthGuard)
   getByRole(
     @Query() q: ListOrdersAdvancedDto,
     @Req() req: any,
@@ -39,42 +41,51 @@ export class OrdersController {
     );
   }
   @Get()
+  @Roles('Administrador', 'Jefe Ventas')
   list(@Query() q: ListOrdersDto) {
     return this.service.listOrders(q);
   }
   @Get(':id')
-  getOne(@Param('id') id: string) {
-    return this.service.getOrder(Number(id));
+  @Roles('Administrador', 'Jefe Ventas', 'Vendedor', 'Vendedor Web')
+  getOne(@Param('id') id: string, @Req() req: any) {
+    return this.service.getOrderForUser(Number(id), req.user);
   }
 
   @Post(':id/approve')
-  approve(@Param('id') id: string, @Body() dto: ApproveOrderDto) {
-    return this.service.approveOrder(Number(id), dto.approved_by);
+  @Roles('Administrador', 'Jefe Ventas')
+  approve(@Param('id') id: string, @Req() req: any) {
+    return this.service.approveOrder(Number(id), Number(req.user.userId));
   }
 
   @Post(':id/reject')
-  reject(@Param('id') id: string, @Body() dto: RejectOrderDto) {
-    return this.service.rejectOrder(Number(id), dto.rejected_by, dto.reason);
+  @Roles('Administrador', 'Jefe Ventas')
+  reject(@Param('id') id: string, @Body() dto: RejectOrderDto, @Req() req: any) {
+    return this.service.rejectOrder(Number(id), Number(req.user.userId), dto.reason);
   }
 
   @Post(':id/delivered')
+  @Roles('Administrador', 'Jefe Ventas', 'Delivery')
   async markAsDelivered(
     @Param('id') orderId: number,
-    @Body() body: { user_id: number; notes?: string },
+    @Body() body: { notes?: string },
+    @Req() req: any,
   ) {
     return this.service.markAsDelivered(
       Number(orderId),
-      body.user_id,
+      Number(req.user.userId),
       body.notes,
     );
   }
 
   @Get('report/sales')
-  getSalesReport(@Query() query: any) {
+  @Roles('Administrador', 'Jefe Ventas', 'Vendedor Web')
+  getSalesReport(@Query() query: any, @Req() req: any) {
     return this.service.getSalesReport({
       fecha_inicio: query.fecha_inicio,
       fecha_fin: query.fecha_fin,
-      vendedor_id: query.vendedor_id ? Number(query.vendedor_id) : undefined,
+      vendedor_id: req.user.role === 'Vendedor Web'
+        ? Number(req.user.userId)
+        : query.vendedor_id ? Number(query.vendedor_id) : undefined,
     });
   }
 }

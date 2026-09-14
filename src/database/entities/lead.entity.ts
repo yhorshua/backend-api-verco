@@ -5,10 +5,14 @@ import {
   Index,
   JoinColumn,
   ManyToOne,
+  OneToMany,
   PrimaryGeneratedColumn,
+  UpdateDateColumn,
 } from 'typeorm';
 
 import { Asesor } from './asesor.entity';
+import { LeadHistory } from './lead-history.entity';
+import { Mensaje } from './mensaje.entity';
 
 export enum OrigenLeadEnum {
   FACEBOOK_ADS_WHATSAPP = 'FACEBOOK_ADS_WHATSAPP',
@@ -27,14 +31,14 @@ export enum EstadoLeadEnum {
 @Entity({
   name: 'leads',
 })
-@Index('idx_leads_telefono', ['telefono'])
 @Index(
-  'uq_leads_meta_message_id',
-  ['meta_message_id'],
+  'uq_leads_numero_telefono',
+  ['phone_number_id', 'telefono'],
   {
     unique: true,
   },
 )
+
 export class Lead {
   @PrimaryGeneratedColumn({
     name: 'id',
@@ -65,14 +69,6 @@ export class Lead {
     type: 'text',
   })
   mensaje_inicial!: string;
-
-  @Column({
-    name: 'meta_message_id',
-    type: 'varchar',
-    length: 255,
-    nullable: true,
-  })
-  meta_message_id!: string | null;
 
   @Column({
     name: 'asesor_id',
@@ -153,4 +149,76 @@ export class Lead {
     referencedColumnName: 'id',
   })
   asesor!: Asesor | null;
+
+  @Column({
+    name: 'phone_number_id',
+    type: 'varchar',
+    length: 100,
+    nullable: true,
+  })
+  phone_number_id!: string | null;
+
+  @Column({
+    name: 'ultima_interaccion_cliente',
+    type: 'datetime',
+    nullable: true,
+  })
+  ultima_interaccion_cliente!: Date | null;
+
+  @Column({
+    name: 'mensajes_no_leidos',
+    type: 'int',
+    default: 0,
+  })
+  mensajes_no_leidos!: number;
+
+  @UpdateDateColumn({
+    name: 'fecha_actualizacion',
+    type: 'datetime',
+    default: () => 'CURRENT_TIMESTAMP',
+    onUpdate: 'CURRENT_TIMESTAMP',
+  })
+  fecha_actualizacion!: Date;
+
+  @Column({
+    name: 'proxima_accion',
+    type: 'varchar',
+    length: 255,
+    nullable: true,
+  })
+  proxima_accion!: string | null;
+
+  @Column({
+    name: 'fecha_proximo_seguimiento',
+    type: 'datetime',
+    nullable: true,
+  })
+  fecha_proximo_seguimiento!: Date | null;
+
+  @Column({
+    name: 'motivo_cierre',
+    type: 'varchar',
+    length: 500,
+    nullable: true,
+  })
+  motivo_cierre!: string | null;
+
+  @Column({
+    name: 'fecha_cierre',
+    type: 'datetime',
+    nullable: true,
+  })
+  fecha_cierre!: Date | null;
+
+  @OneToMany(
+    () => Mensaje,
+    (mensaje) => mensaje.lead,
+  )
+  mensajes!: Mensaje[];
+
+  @OneToMany(
+    () => LeadHistory,
+    (history) => history.lead,
+  )
+  historial!: LeadHistory[];
 }

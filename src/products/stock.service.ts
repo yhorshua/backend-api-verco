@@ -25,6 +25,13 @@ import moment, { now } from 'moment-timezone';
 import { UpdateProductDto } from './dto/create-product.dto';
 import { StockMovementReportDto } from './dto/stockMovementReport.dto';
 
+type CreditTerms = {
+  monto_adelanto: number;
+  metodo_pago_adelanto: 'efectivo' | 'yape' | null;
+  monto_restante: number;
+  fecha_proximo_pago: string | null;
+};
+
 @Injectable()
 export class StockService {
   constructor(
@@ -80,8 +87,11 @@ export class StockService {
       // 2) Validar stock + calcular total real con BD
       const { validated, total_amount } = await this.validateStockAndComputeTotal(manager, dto);
 
+      // 2.1) El backend calcula y valida las condiciones del crédito contra el total real.
+      const creditTerms = this.resolveCreditTerms(dto, total_amount);
+
       // 3) Crear venta
-      const sale = await this.createSaleHeader(manager, dto, sale_code, total_amount);
+      const sale = await this.createSaleHeader(manager, dto, sale_code, total_amount, creditTerms);
 
       // 4) Crear detalles + movimientos + descontar stock
       const stockMovements = await this.createDetailsAndStockOutputs(manager, dto, sale, validated);
@@ -129,7 +139,7 @@ export class StockService {
     const rows = await manager.query(
       `SELECT id
        FROM CashRegisterSessions
-       WHERE warehouse_id = ? AND status = 'OPEN'
+       WHERE warehouse_id = ? AND user_id = ? AND status = 'OPEN'
        ORDER BY opened_at DESC
        LIMIT 1
        FOR UPDATE`,
@@ -276,6 +286,7 @@ export class StockService {
     dto: CreateSaleDto,
     sale_code: string,
     total_amount: number,
+    creditTerms: CreditTerms,
   ) {
     const sale = manager.create(Sale, {
       sale_code,
@@ -284,11 +295,93 @@ export class StockService {
       customer_id: dto.customer_id,
       total_amount,
       payment_method: dto.payment_method,
+      ...creditTerms,
+      payment_status: creditTerms.monto_restante > 0 ? 'PENDING' : 'PAID',
       sale_date: new Date(),
     });
 
     await manager.save(Sale, sale);
     return sale;
+  }
+
+  private resolveCreditTerms(dto: CreateSaleDto, total: number): CreditTerms {
+    if (dto.payment_method !== 'credito') {
+      const hasInvalidCreditData =
+        Number(dto.monto_adelanto ?? 0) !== 0 ||
+        Number(dto.monto_restante ?? 0) !== 0 ||
+        dto.metodo_pago_adelanto != null ||
+        dto.fecha_proximo_pago != null;
+
+      if (hasInvalidCreditData) {
+        throw new BadRequestException(
+          'Los campos de crédito solo pueden enviarse cuando payment_method es credito',
+        );
+      }
+
+      return {
+        monto_adelanto: 0,
+        metodo_pago_adelanto: null,
+        monto_restante: 0,
+        fecha_proximo_pago: null,
+      };
+    }
+
+    const montoAdelanto = Number(dto.monto_adelanto ?? 0);
+
+    if (!Number.isFinite(montoAdelanto) || montoAdelanto < 0) {
+      throw new BadRequestException('El monto de adelanto debe ser un número mayor o igual a cero');
+    }
+
+    const adelanto = Number(montoAdelanto.toFixed(2));
+    if (adelanto > total) {
+      throw new BadRequestException(
+        `El adelanto (${adelanto}) no puede superar el total de la venta (${total})`,
+      );
+    }
+
+    const metodoAdelanto = dto.metodo_pago_adelanto;
+    if (
+      adelanto > 0 &&
+      metodoAdelanto !== 'efectivo' &&
+      metodoAdelanto !== 'yape'
+    ) {
+      throw new BadRequestException('El método del adelanto debe ser efectivo o yape');
+    }
+
+    const montoRestante = Number((total - adelanto).toFixed(2));
+    const saldoInformado = dto.monto_restante;
+    if (
+      saldoInformado !== undefined &&
+      Number(Number(saldoInformado).toFixed(2)) !== montoRestante
+    ) {
+      throw new BadRequestException(
+        `El saldo informado (${saldoInformado}) no coincide con el saldo calculado (${montoRestante})`,
+      );
+    }
+
+    const fechaProximoPago = dto.fecha_proximo_pago?.trim() || null;
+
+    if (montoRestante > 0 && !fechaProximoPago) {
+      throw new BadRequestException(
+        'La fecha de próximo pago es obligatoria cuando existe saldo pendiente',
+      );
+    }
+
+    if (
+      fechaProximoPago &&
+      !/^\d{4}-\d{2}-\d{2}$/.test(fechaProximoPago)
+    ) {
+      throw new BadRequestException(
+        'La fecha de próximo pago debe tener el formato YYYY-MM-DD',
+      );
+    }
+
+    return {
+      monto_adelanto: adelanto,
+      metodo_pago_adelanto: adelanto > 0 ? metodoAdelanto! : null,
+      monto_restante: montoRestante,
+      fecha_proximo_pago: montoRestante > 0 ? fechaProximoPago : null,
+    };
   }
 
   private async createDetailsAndStockOutputs(
@@ -382,7 +475,12 @@ export class StockService {
     const payments: SalePayment[] = [];
 
     const savePayment = async (payload: Partial<SalePayment>) => {
-      const pay = manager.create(SalePayment, payload);
+      const pay = manager.create(SalePayment, {
+        payment_date: moment().tz('America/Lima').format('YYYY-MM-DD'),
+        registered_by_user_id: dto.user_id,
+        idempotency_key: null,
+        ...payload,
+      });
       await manager.save(SalePayment, pay);
       payments.push(pay);
     };
@@ -496,6 +594,31 @@ export class StockService {
         cash_received: null,
         cash_change: null,
         notes,
+      });
+
+      return payments;
+    }
+
+    if (dto.payment_method === 'credito') {
+      const adelanto = Number(sale.monto_adelanto);
+
+      if (adelanto <= 0) {
+        return payments;
+      }
+
+      const metodoAdelanto = sale.metodo_pago_adelanto;
+      if (metodoAdelanto !== 'efectivo' && metodoAdelanto !== 'yape') {
+        throw new BadRequestException('Método de pago del adelanto inválido');
+      }
+
+      await savePayment({
+        sale_id: sale.id,
+        method: metodoAdelanto,
+        amount: adelanto,
+        cash_received: metodoAdelanto === 'efectivo' ? adelanto : null,
+        cash_change: metodoAdelanto === 'efectivo' ? 0 : null,
+        notes: 'Adelanto de venta a crédito',
+        created_at: new Date(),
       });
 
       return payments;

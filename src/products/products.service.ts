@@ -317,6 +317,8 @@ export class ProductsService {
       stock_minimum: product.stock_minimum,
       product_image: product.product_image,
       price: product.manufacturing_cost,
+      wholesale_price: product.wholesale_price,
+      unit_price: product.unit_price,
       category: product.category,
       series: product.series,
       sizes: product.sizes,

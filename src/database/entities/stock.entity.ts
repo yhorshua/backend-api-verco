@@ -5,6 +5,7 @@ import {
   ManyToOne,
   JoinColumn,
   Unique,
+  VersionColumn,
 } from 'typeorm';
 
 import { Warehouse } from './warehouse.entity';
@@ -63,4 +64,10 @@ export class Stock {
     length: 20,
   })
   unit_of_measure: string;
+
+  @VersionColumn({ type: 'int', unsigned: true, default: 1 })
+  version: number;
+
+  @Column({ type: 'datetime', precision: 3, nullable: true })
+  updated_at_utc: Date | null;
 }

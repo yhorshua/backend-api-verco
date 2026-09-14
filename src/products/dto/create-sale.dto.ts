@@ -10,6 +10,7 @@ import {
   ValidateNested,
   Min,
   IsNotEmpty,
+  IsDateString,
 } from 'class-validator';
 
 export type PaymentMethod =
@@ -19,7 +20,8 @@ export type PaymentMethod =
   | 'tarjetaDebito'
   | 'tarjetaCredito'
   | 'yapeEfectivo'
-  | 'obsequio';
+  | 'obsequio'
+  | 'credito';
 
 class CreateSaleItemDto {
   @IsNumber()
@@ -87,6 +89,7 @@ class PaymentDetailDto {
   @IsOptional()
   @IsString()
   autorizadoPor?: string;
+
 }
 
 
@@ -102,8 +105,32 @@ export class CreateSaleDto {
   customer_id?: number;
 
   // ✅ valida que venga uno de tus métodos
-  @IsIn(['efectivo', 'yape', 'plin', 'tarjetaDebito', 'tarjetaCredito', 'yapeEfectivo', 'obsequio'])
+  @IsIn(['efectivo', 'yape', 'plin', 'tarjetaDebito', 'tarjetaCredito', 'yapeEfectivo', 'obsequio', 'credito'])
   payment_method: PaymentMethod;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  monto_adelanto?: number;
+
+  @IsOptional()
+  @IsIn(['efectivo', 'yape'])
+  metodo_pago_adelanto?: 'efectivo' | 'yape' | null;
+
+  /**
+   * El frontend lo envía para contrastar lo mostrado al usuario.
+   * El servicio siempre vuelve a calcular el valor definitivo.
+   */
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  monto_restante?: number;
+
+  @IsOptional()
+  @IsDateString()
+  fecha_proximo_pago?: string | null;
 
   // ✅ aquí llegarán los campos extra de tu UI
   @IsOptional()

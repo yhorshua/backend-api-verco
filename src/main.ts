@@ -1,9 +1,14 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
+import { correlationIdMiddleware } from './common/http/correlation-id.middleware';
+import { RequestLoggingInterceptor } from './common/http/request-logging.interceptor';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, { rawBody: true });
+
+  app.use(correlationIdMiddleware);
+  app.useGlobalInterceptors(new RequestLoggingInterceptor());
 
   app.useGlobalPipes(
     new ValidationPipe({

@@ -732,7 +732,7 @@ export class ReportsService {
 
       const amount = Number(m.amount);
 
-      if (m.type === 'SALE') {
+      if (m.type === 'SALE' || m.type === 'CREDIT_PAYMENT') {
 
         if (m.payment_method === 'efectivo') {
           salesCash += amount;
@@ -856,7 +856,10 @@ export class ReportsService {
       for (const m of movements) {
         const amount = Number(m.amount || 0);
 
-        if (m.type === 'SALE' && m.payment_method === 'efectivo') {
+        if (
+          (m.type === 'SALE' || m.type === 'CREDIT_PAYMENT') &&
+          m.payment_method === 'efectivo'
+        ) {
           salesCash += amount;
         }
 

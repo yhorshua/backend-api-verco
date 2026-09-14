@@ -29,6 +29,9 @@ export class Order {
   @Column()
   proforma_number: number;
 
+  @Column({ type: 'bigint', unsigned: true, nullable: true })
+  quotation_id: number | null;
+
   // CLIENTE
   @Column()
   client_id: number;

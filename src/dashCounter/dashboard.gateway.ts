@@ -10,10 +10,20 @@ import {
 
 import { Server, Socket } from 'socket.io';
 import { DashboardCountersService } from './dashCounter.service';
+import { JwtService } from '@nestjs/jwt';
+import { UsersService } from '../users/users.service';
 
 @WebSocketGateway({
     cors: {
-        origin: '*',
+        origin: [
+            'http://localhost:3000',
+            'https://verco.store',
+            'https://www.verco.store',
+            'https://verco.online',
+            'https://www.verco.online',
+            'https://verco-system-xdke.vercel.app',
+        ],
+        credentials: true,
     },
 })
 export class DashboardGateway implements OnGatewayConnection, OnGatewayDisconnect {
@@ -24,16 +34,31 @@ export class DashboardGateway implements OnGatewayConnection, OnGatewayDisconnec
 
     constructor(
         private readonly countersService: DashboardCountersService,
+        private readonly jwtService: JwtService,
+        private readonly usersService: UsersService,
     ) { }
 
-    handleConnection(client: Socket) {
-        const roleName = client.handshake.auth?.roleName;
-
-        if (this.isSalesManager(roleName)) {
-            client.join(this.salesManagerRoom);
-            this.emitCountersToSalesManager();
-        } else {
-            console.log(`Cliente conectado: ${client.id}`);
+    async handleConnection(client: Socket) {
+        try {
+            const rawToken = String(client.handshake.auth?.token || '');
+            const token = rawToken.startsWith('Bearer ') ? rawToken.slice(7) : rawToken;
+            if (!token) throw new Error('Token ausente');
+            const payload = await this.jwtService.verifyAsync(token);
+            const user = await this.usersService.findOne(Number(payload.sub));
+            const roleName = user?.role?.name_role;
+            if (!user || !user.state_user || !this.canUseOrderNotifications(roleName)) {
+                throw new Error('Usuario no autorizado');
+            }
+            client.data.userId = user.id;
+            client.data.roleName = roleName;
+            await client.join(`user:${user.id}`);
+            if (this.isSalesManager(roleName)) {
+                await client.join(this.salesManagerRoom);
+                await this.emitCountersToSalesManager();
+            }
+        } catch {
+            client.emit('dashboard:error', { message: 'Sesión no autorizada' });
+            client.disconnect(true);
         }
     }
 
@@ -44,9 +69,9 @@ export class DashboardGateway implements OnGatewayConnection, OnGatewayDisconnec
     @SubscribeMessage('dashboard:join')
     handleJoinDashboard(
         @ConnectedSocket() client: Socket,
-        @MessageBody() body: any,
+        @MessageBody() _body: unknown,
     ) {
-        const roleName = body?.roleName;
+        const roleName = client.data?.roleName;
 
         if (!this.isSalesManager(roleName)) {
             return {
@@ -81,11 +106,23 @@ export class DashboardGateway implements OnGatewayConnection, OnGatewayDisconnec
         this.server
             .to(this.salesManagerRoom)
             .emit('order:new', data);
-            this.emitCountersToSalesManager();
+        void this.emitCountersToSalesManager();
     }
 
-    private isSalesManager(roleName: string): boolean {
+    emitOrderUpdateToSalesManager(data: any) {
+        let target = this.server.to(this.salesManagerRoom);
+        if (data.sellerId) target = target.to(`user:${data.sellerId}`);
+        target
+            .emit('order:updated', data);
+        void this.emitCountersToSalesManager();
+    }
+
+    private isSalesManager(roleName?: string): boolean {
         return roleName === 'Jefe Ventas' || roleName === 'Administrador';
+    }
+
+    private canUseOrderNotifications(roleName?: string): boolean {
+        return this.isSalesManager(roleName) || roleName === 'Vendedor' || roleName === 'Vendedor Web';
     }
 
 }

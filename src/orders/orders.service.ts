@@ -1,5 +1,7 @@
 import {
   BadRequestException,
+  ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
   UnauthorizedException,
@@ -23,6 +25,7 @@ import { DeliveryStatusEnum } from './dto/statusDelivered.dto';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { DASHBOARD_EVENTS } from '../dashCounter/dto/dashboard-events.constants';
 import { OrdersHistorial } from 'src/database/entities/orders-historial.entity';
+import { businessDateInPeru, toPeruIso, utcDatabaseDateTime } from '../utils/timezone.util';
 
 
 @Injectable()
@@ -54,7 +57,21 @@ export class OrdersService {
   /* ============================================================
      CREAR PEDIDO + RESERVAR STOCK
      ============================================================ */
-  async createOrderAndReserveStock(dto: CreateOrderDto) {
+  async createOrderAndReserveStock(
+    dto: CreateOrderDto,
+    actor: { userId: number; role: string; warehouseId?: number | null },
+  ) {
+    const actorId = Number(actor?.userId);
+    const isManager = actor?.role === 'Administrador' || actor?.role === 'Jefe Ventas';
+    if (!Number.isInteger(actorId) || actorId < 1) {
+      throw new ForbiddenException('No se pudo identificar al usuario autenticado');
+    }
+    if (!isManager && Number(dto.user_id) !== actorId) {
+      throw new ForbiddenException('No puedes crear pedidos a nombre de otro vendedor');
+    }
+    if (!isManager && Number(dto.warehouse_id) !== Number(actor.warehouseId)) {
+      throw new ForbiddenException('No puedes reservar inventario de otro almacén');
+    }
     if (!dto.items?.length) {
       throw new BadRequestException('items es requerido');
     }
@@ -82,6 +99,33 @@ export class OrdersService {
       const productRepo = manager.getRepository(Product);
       const historialRepo = manager.getRepository(OrdersHistorial);
 
+      const sellerRows = await manager.query(
+        `SELECT u.id, u.warehouse_id, r.name_role
+           FROM Users u JOIN Roles r ON r.id = u.rol_id
+          WHERE u.id = ? AND u.state_user = 1 LIMIT 1`,
+        [dto.user_id],
+      );
+      if (!sellerRows.length || !['Vendedor', 'Vendedor Web', 'Jefe Ventas', 'Administrador'].includes(sellerRows[0].name_role)) {
+        throw new BadRequestException('El vendedor seleccionado no existe o no está activo');
+      }
+
+      const warehouseRows = await manager.query(
+        'SELECT id FROM Warehouses WHERE id = ? AND status = 1 LIMIT 1',
+        [dto.warehouse_id],
+      );
+      if (!warehouseRows.length) {
+        throw new BadRequestException('El almacén seleccionado no existe o está inactivo');
+      }
+
+      const clientRows = await manager.query(
+        'SELECT id, seller_id FROM Clients WHERE id = ? LIMIT 1',
+        [dto.client_id],
+      );
+      if (!clientRows.length) throw new BadRequestException('El cliente seleccionado no existe');
+      if (clientRows[0].seller_id != null && Number(clientRows[0].seller_id) !== Number(dto.user_id)) {
+        throw new ForbiddenException('La cotización o pedido no pertenece al vendedor seleccionado');
+      }
+
       const groupedMap = new Map<
         string,
         {
@@ -89,7 +133,10 @@ export class OrdersService {
           product_size_id: number | null;
           size: string;
           quantity: number;
-          unit_price: number;
+           unit_price: number;
+           quotation_detail_id: number | null;
+           discount_amount: number;
+           tax_amount: number;
         }
       >();
 
@@ -102,6 +149,9 @@ export class OrdersService {
 
         const quantity = Number(item.quantity);
         const unitPrice = Number(item.unit_price);
+        const quotationDetailId = item.quotation_detail_id == null
+          ? null
+          : Number(item.quotation_detail_id);
 
         if (!Number.isFinite(productId) || productId <= 0) {
           throw new BadRequestException('product_id inválido');
@@ -115,7 +165,11 @@ export class OrdersService {
           throw new BadRequestException('unit_price inválido');
         }
 
-        const key = `${productId}|${productSizeId ?? 'null'}`;
+        if (quotationDetailId !== null && (!Number.isInteger(quotationDetailId) || quotationDetailId < 1)) {
+          throw new BadRequestException('quotation_detail_id inválido');
+        }
+
+        const key = `${productId}|${productSizeId ?? 'null'}|${quotationDetailId ?? 'MANUAL'}`;
 
         if (!groupedMap.has(key)) {
           groupedMap.set(key, {
@@ -124,6 +178,9 @@ export class OrdersService {
             size: item.size,
             quantity,
             unit_price: unitPrice,
+            quotation_detail_id: quotationDetailId,
+            discount_amount: 0,
+            tax_amount: 0,
           });
         } else {
           const current = groupedMap.get(key)!;
@@ -132,14 +189,81 @@ export class OrdersService {
       }
 
       const items = Array.from(groupedMap.values());
+      const productSizeKeys = items.map((item) => `${item.product_id}|${item.product_size_id ?? 'null'}`);
+      if (new Set(productSizeKeys).size !== productSizeKeys.length) {
+        throw new BadRequestException('No se puede repetir el mismo producto y talla entre líneas manuales y cotizadas');
+      }
       const productIds = [...new Set(items.map((i) => i.product_id))];
 
-      const lastOrder = await orderRepo.findOne({
-        where: {},
-        order: { id: 'DESC' },
-      });
+      const quotationItems = items.filter((item) => item.quotation_detail_id !== null);
+      let quotationStatusBefore: string | null = null;
+      if (dto.quotation_id) {
+        if (!quotationItems.length) {
+          throw new BadRequestException('La cotización seleccionada no contiene líneas en el pedido');
+        }
+        const quoteRows = await manager.query(
+          `SELECT id, client_id, seller_id, warehouse_id, status, expires_on
+             FROM Quotations WHERE id = ? FOR UPDATE`,
+          [dto.quotation_id],
+        );
+        if (!quoteRows.length) throw new BadRequestException('La cotización no existe');
+        const quote = quoteRows[0];
+        quotationStatusBefore = quote.status;
+        if (!['ISSUED', 'PARTIALLY_USED'].includes(quote.status)) {
+          throw new BadRequestException('La cotización ya no está disponible');
+        }
+        if (Number(quote.client_id) !== Number(dto.client_id) || Number(quote.seller_id) !== Number(dto.user_id)) {
+          throw new ForbiddenException('La cotización no corresponde al cliente y vendedor seleccionados');
+        }
+        if (Number(quote.warehouse_id) !== Number(dto.warehouse_id)) {
+          throw new BadRequestException('La cotización pertenece a otro almacén');
+        }
+        const today = businessDateInPeru();
+        const expiry = quote.expires_on ? String(quote.expires_on).slice(0, 10) : null;
+        if (expiry && expiry < today) throw new ConflictException('La cotización está vencida');
 
-      const nextProforma = (lastOrder?.proforma_number ?? 0) + 1;
+        const quoteIds = quotationItems.map((item) => item.quotation_detail_id as number);
+        const placeholders = quoteIds.map(() => '?').join(',');
+        const quotedRows = await manager.query(
+          `SELECT * FROM QuotationDetails WHERE quotation_id = ? AND id IN (${placeholders}) FOR UPDATE`,
+          [dto.quotation_id, ...quoteIds],
+        );
+        const quotedMap = new Map(quotedRows.map((row: any) => [Number(row.id), row]));
+        for (const item of quotationItems) {
+          const quoted: any = quotedMap.get(item.quotation_detail_id as number);
+          if (!quoted || Number(quoted.product_id) !== item.product_id || Number(quoted.product_size_id) !== Number(item.product_size_id)) {
+            throw new BadRequestException('Una línea no corresponde a la cotización seleccionada');
+          }
+          const remaining = Number(quoted.quantity) - Number(quoted.used_quantity);
+          if (item.quantity > remaining) {
+            throw new ConflictException(`La cantidad solicitada supera el pendiente cotizado para ${quoted.sku_snapshot}. Pendiente: ${remaining}`);
+          }
+          item.unit_price = this.fromCents(this.toCents(quoted.unit_price, 'precio cotizado'));
+          item.discount_amount = this.fromCents(
+            Math.round(this.toCents(quoted.discount_amount, 'descuento cotizado') * item.quantity / Number(quoted.quantity)),
+          );
+          item.tax_amount = this.fromCents(
+            Math.round(this.toCents(quoted.tax_amount, 'impuesto cotizado') * item.quantity / Number(quoted.quantity)),
+          );
+        }
+      } else if (quotationItems.length) {
+        throw new BadRequestException('quotation_id es obligatorio para líneas provenientes de cotización');
+      }
+
+      const sequenceTime = utcDatabaseDateTime();
+      await manager.query(
+        `INSERT INTO OrderSequences (sequence_name,last_number,updated_at_utc)
+         VALUES ('WHOLESALE',0,?) ON DUPLICATE KEY UPDATE sequence_name=VALUES(sequence_name)`,
+        [sequenceTime],
+      );
+      const sequenceRows = await manager.query(
+        `SELECT last_number FROM OrderSequences WHERE sequence_name='WHOLESALE' FOR UPDATE`,
+      );
+      const nextProforma = Number(sequenceRows[0].last_number) + 1;
+      await manager.query(
+        `UPDATE OrderSequences SET last_number=?,updated_at_utc=? WHERE sequence_name='WHOLESALE'`,
+        [nextProforma, sequenceTime],
+      );
 
       const products = await productRepo.find({
         where: {
@@ -150,7 +274,8 @@ export class OrdersService {
       const productMap = new Map(products.map((p) => [p.id, p]));
 
       for (const item of items) {
-        if (!productMap.has(item.product_id)) {
+        const product = productMap.get(item.product_id);
+        if (!product || !product.status) {
           throw new BadRequestException(
             `Producto ID ${item.product_id} no existe`,
           );
@@ -242,6 +367,7 @@ export class OrdersService {
 
       const order = orderRepo.create({
         proforma_number: nextProforma,
+        quotation_id: dto.quotation_id ?? null,
         client_id: dto.client_id,
         user_id: dto.user_id,
         warehouse_id: dto.warehouse_id,
@@ -272,18 +398,28 @@ export class OrdersService {
       const detailsToSave = items.map((item) => {
         const product = productMap.get(item.product_id)!;
 
-        const factoryPrice = Number(product.factory_price ?? 0);
-        const totalAmount = Number((item.quantity * item.unit_price).toFixed(2));
-        const costTotal = Number((item.quantity * factoryPrice).toFixed(2));
-        const profitAmount = Number((totalAmount - costTotal).toFixed(2));
+        const factoryPriceCents = this.toCents(product.factory_price ?? 0, 'precio de fábrica');
+        const unitPriceCents = this.toCents(item.unit_price, 'precio unitario');
+        const totalAmountCents = unitPriceCents * item.quantity
+          - this.toCents(item.discount_amount, 'descuento')
+          + this.toCents(item.tax_amount, 'impuesto');
+        const costTotalCents = factoryPriceCents * item.quantity;
+        const factoryPrice = this.fromCents(factoryPriceCents);
+        const totalAmount = this.fromCents(totalAmountCents);
+        const costTotal = this.fromCents(costTotalCents);
+        const profitAmount = this.fromCents(totalAmountCents - costTotalCents);
 
         return detailRepo.create({
           order_id: savedOrder.id,
+          quotation_detail_id: item.quotation_detail_id,
+          source_type: item.quotation_detail_id ? 'QUOTATION' : 'MANUAL',
           product_id: item.product_id,
           product_size_id: item.product_size_id,
           size: item.size,
           quantity: item.quantity,
           unit_price: item.unit_price,
+          discount_amount: item.discount_amount,
+          tax_amount: item.tax_amount,
 
           factory_price_at_order: factoryPrice,
 
@@ -317,6 +453,36 @@ export class OrdersService {
 
       await reservationRepo.save(reservationsToSave);
 
+      if (dto.quotation_id) {
+        for (const item of quotationItems) {
+          const update = await manager.query(
+            `UPDATE QuotationDetails
+                SET used_quantity = used_quantity + ?
+              WHERE id = ? AND quotation_id = ? AND used_quantity + ? <= quantity`,
+            [item.quantity, item.quotation_detail_id, dto.quotation_id, item.quantity],
+          );
+          if (Number(update.affectedRows) !== 1) {
+            throw new ConflictException('La cotización cambió mientras se registraba el pedido');
+          }
+        }
+        const pending = await manager.query(
+          'SELECT COALESCE(SUM(quantity-used_quantity),0) remaining FROM QuotationDetails WHERE quotation_id=?',
+          [dto.quotation_id],
+        );
+        const nextQuoteStatus = Number(pending[0].remaining) === 0 ? 'USED' : 'PARTIALLY_USED';
+        const changeTime = new Date();
+        await manager.query(
+          'UPDATE Quotations SET status=?,updated_by=?,updated_at_utc=?,version=version+1 WHERE id=?',
+          [nextQuoteStatus, actorId, utcDatabaseDateTime(changeTime), dto.quotation_id],
+        );
+        await manager.query(
+          `INSERT INTO QuotationHistory
+            (quotation_id,action,previous_status,new_status,user_id,notes,occurred_at_utc,occurred_at_lima)
+           VALUES (?,'CONVERTED_TO_ORDER',?,?,?,?,?,?)`,
+          [dto.quotation_id, quotationStatusBefore, nextQuoteStatus, actorId, `Pedido ${savedOrder.id} creado`, utcDatabaseDateTime(changeTime), toPeruIso(changeTime)],
+        );
+      }
+
       await historialRepo.save(
         historialRepo.create({
           id_pedido: savedOrder.id,
@@ -333,7 +499,7 @@ export class OrdersService {
     this.eventEmitter.emit('order.created', {
       message: 'Nuevo pedido registrado',
       proforma: result.order.proforma_number,
-      customerName: result.order.customer_name ?? 'Cliente no especificado',
+      customerName: result.order.customer_name ?? 'Cliente registrado',
     });
 
     return result;
@@ -343,7 +509,7 @@ export class OrdersService {
      APROBAR PEDIDO
      ============================================================ */
   async approveOrder(orderId: number, approvedBy: number) {
-    return this.dataSource.transaction(async (manager) => {
+    const result = await this.dataSource.transaction(async (manager) => {
       const orderRepo = manager.getRepository(Order);
       const historialRepo = manager.getRepository(OrdersHistorial);
 
@@ -378,18 +544,32 @@ export class OrdersService {
         }),
       );
 
-      return {
+      const response = {
         ok: true,
         order: savedOrder,
       };
+      return response;
     });
+
+    this.eventEmitter.emit(DASHBOARD_EVENTS.ORDER_UPDATED, {
+      message: 'Pedido aprobado',
+      proforma: result.order.proforma_number,
+      status: 'APROBADO',
+      sellerId: result.order.user_id,
+    });
+
+    return result;
   }
 
   /* ============================================================
      RECHAZAR PEDIDO → LIBERAR RESERVA
      ============================================================ */
   async rejectOrder(orderId: number, rejectedBy: number, reason?: string) {
-    return this.dataSource.transaction(async (manager) => {
+    const cleanReason = String(reason ?? '').trim();
+    if (cleanReason.length < 3) {
+      throw new BadRequestException('El motivo del rechazo es obligatorio');
+    }
+    const result = await this.dataSource.transaction(async (manager) => {
       const orderRepo = manager.getRepository(Order);
       const reservationRepo = manager.getRepository(StockReservation);
       const historialRepo = manager.getRepository(OrdersHistorial);
@@ -420,7 +600,7 @@ export class OrdersService {
       );
 
       order.order_status_id = OrderStatusEnum.RECHAZADO;
-      order.observations = reason ?? order.observations;
+      order.observations = cleanReason;
 
       const savedOrder = await orderRepo.save(order);
 
@@ -430,7 +610,7 @@ export class OrdersService {
           estado_anterior: estadoAnterior,
           estado_nuevo: String(OrderStatusEnum.RECHAZADO),
           usuario_id: rejectedBy,
-          observacion: reason ?? 'Pedido rechazado',
+          observacion: cleanReason,
         }),
       );
 
@@ -439,6 +619,15 @@ export class OrdersService {
         order: savedOrder,
       };
     });
+
+    this.eventEmitter.emit(DASHBOARD_EVENTS.ORDER_UPDATED, {
+      message: 'Pedido rechazado',
+      proforma: result.order.proforma_number,
+      status: 'RECHAZADO',
+      sellerId: result.order.user_id,
+    });
+
+    return result;
   }
 
   /* ============================================================
@@ -473,6 +662,18 @@ export class OrdersService {
     );
 
     return { order, details, totalUnidades, totalPrecio };
+  }
+
+  async getOrderForUser(
+    id: number,
+    actor: { userId: number; role: string },
+  ) {
+    const result = await this.getOrder(id);
+    const isManager = actor.role === 'Administrador' || actor.role === 'Jefe Ventas';
+    if (!isManager && Number(result.order.user_id) !== Number(actor.userId)) {
+      throw new ForbiddenException('No tienes acceso a este pedido');
+    }
+    return result;
   }
 
   async listOrdersByUserAndRole(
@@ -1171,6 +1372,22 @@ export class OrdersService {
       resumen_por_talla: Array.from(tallasMap.values()),
       detalle_ventas: detalleVentas,
     };
+  }
+
+  private toCents(value: unknown, label: string): number {
+    const text = String(value ?? '').trim();
+    if (!/^-?\d{1,10}(\.\d{1,2})?$/.test(text)) {
+      throw new BadRequestException(`${label} inválido`);
+    }
+    const negative = text.startsWith('-');
+    const normalized = negative ? text.slice(1) : text;
+    const [whole, decimals = ''] = normalized.split('.');
+    const cents = Number(whole) * 100 + Number(decimals.padEnd(2, '0'));
+    return negative ? -cents : cents;
+  }
+
+  private fromCents(cents: number): number {
+    return Number((cents / 100).toFixed(2));
   }
 
 }

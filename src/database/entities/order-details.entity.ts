@@ -18,6 +18,12 @@ export class OrderDetail {
   @Column()
   order_id: number;
 
+  @Column({ type: 'bigint', unsigned: true, nullable: true })
+  quotation_detail_id: number | null;
+
+  @Column({ type: 'varchar', length: 15, default: 'MANUAL' })
+  source_type: 'MANUAL' | 'QUOTATION';
+
   @ManyToOne(() => Order)
   @JoinColumn({ name: 'order_id' })
   order: Order;
@@ -44,6 +50,12 @@ export class OrderDetail {
 
   @Column({ type: 'decimal', precision: 10, scale: 2 })
   unit_price: number;
+
+  @Column({ type: 'decimal', precision: 12, scale: 2, default: 0 })
+  discount_amount: number;
+
+  @Column({ type: 'decimal', precision: 12, scale: 2, default: 0 })
+  tax_amount: number;
 
   @Column({
     type: 'decimal',

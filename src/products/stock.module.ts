@@ -15,6 +15,7 @@ import { CashMovement } from '../database/entities/cash-movement.entity';
 import { ProductSize } from 'src/database/entities/product-size.entity';
 import { ProductsModule } from './products.module';
 import { Product } from 'src/database/entities/product.entity';
+import { RolesGuard } from '../auth/roles.guard';
 
 @Module({
   imports: [
@@ -33,7 +34,7 @@ import { Product } from 'src/database/entities/product.entity';
     ProductsModule,
   ],
   controllers: [StockController],
-  providers: [StockService],
+  providers: [StockService, RolesGuard],
   exports: [StockService],
 })
 export class StockModule { }

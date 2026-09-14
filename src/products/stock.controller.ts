@@ -1,9 +1,11 @@
-import { Controller, Get, Post, Body, Param, UseGuards, Req, Query } from '@nestjs/common';
+import { BadRequestException, Controller, Get, GoneException, Post, Body, Param, UseGuards, Req, Query } from '@nestjs/common';
 import { StockService } from './stock.service';
 import { CreateMovementDto } from './dto/create-movement.dto';
 import { CreateSaleDto } from './dto/create-sale.dto';
 import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
 import { StockMovementReportDto } from './dto/stockMovementReport.dto';
+import { RolesGuard } from '../auth/roles.guard';
+import { Roles } from '../auth/roles.decorator';
 
 type RegisterStockMultipleDto = {
   warehouseId: number;
@@ -20,7 +22,8 @@ type RegisterStockMultipleDto = {
 export class StockController {
   constructor(private readonly stockService: StockService) { }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('Administrador', 'Tienda')
   @Post('register-multiple')
   async registerStockForMultipleItems(
     @Body() stockDto: RegisterStockMultipleDto,
@@ -54,13 +57,30 @@ export class StockController {
     );
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('Administrador', 'Tienda')
   @Post('sale')
-  registerSale(@Body() dto: CreateSaleDto) {
-    return this.stockService.registerSale(dto);
+  registerSale(@Body() dto: CreateSaleDto, @Req() req: any) {
+    const authenticatedUserId = Number(req.user?.userId);
+
+    if (!Number.isInteger(authenticatedUserId) || authenticatedUserId < 1) {
+      throw new BadRequestException('No se pudo identificar al usuario autenticado');
+    }
+
+    if (Number(dto.user_id) !== authenticatedUserId) {
+      throw new BadRequestException(
+        'El usuario de la venta no coincide con el usuario autenticado',
+      );
+    }
+
+    return this.stockService.registerSale({
+      ...dto,
+      user_id: authenticatedUserId,
+    });
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('Administrador', 'Jefe Ventas')
   @Get('inventory/:warehouseId/category/:categoryId')
   getInventory(
     @Param('warehouseId') warehouseId: string,
@@ -72,27 +92,17 @@ export class StockController {
     );
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('Administrador')
   @Post('inventory/adjust')
-  adjustInventory(
-    @Body()
-    body: {
-      warehouseId: number;
-      userId: number;
-      items: {
-        product_id: number;
-        product_size_id: number;
-        new_quantity: number;
-      }[];
-    },
-  ) {
-    return this.stockService.adjustInventory(
-      body.warehouseId,
-      body.userId,
-      body.items,
+  adjustInventory() {
+    throw new GoneException(
+      'Este endpoint fue reemplazado por POST /inventory-adjustments para garantizar motivo, auditoría y control de concurrencia',
     );
   }
 
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('Administrador')
   @Get('movements/report')
   getStockMovementReport(
     @Query() filters: StockMovementReportDto

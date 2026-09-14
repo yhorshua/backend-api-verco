@@ -69,7 +69,16 @@ import { WebSaleInvoice } from './database/entities/webSaleInvoices';
 import { Asesor } from './database/entities/asesor.entity';
 import { Lead } from './database/entities/lead.entity';
 import { Mensaje } from './database/entities/mensaje.entity';
+import { LeadHistory } from './database/entities/lead-history.entity';
 import { MetaWebhookModule } from './meta/meta.module';
+import { PendingPaymentsModule } from './pending-payments/pending-payments.module';
+import { InventoryAdjustmentsModule } from './inventory-adjustments/inventory-adjustments.module';
+import { InventoryAdjustmentOperation } from './database/entities/inventory-adjustment-operation.entity';
+import { InventoryAdjustmentDetail } from './database/entities/inventory-adjustment-detail.entity';
+import { Quotation } from './database/entities/quotation.entity';
+import { QuotationDetail } from './database/entities/quotation-detail.entity';
+import { QuotationHistory } from './database/entities/quotation-history.entity';
+import { QuotationsModule } from './quotations/quotations.module';
 
 @Module({
   imports: [
@@ -137,6 +146,12 @@ import { MetaWebhookModule } from './meta/meta.module';
         Asesor,
         Lead,
         Mensaje,
+        LeadHistory,
+        InventoryAdjustmentOperation,
+        InventoryAdjustmentDetail,
+        Quotation,
+        QuotationDetail,
+        QuotationHistory,
       ],
     }),
 
@@ -162,6 +177,9 @@ import { MetaWebhookModule } from './meta/meta.module';
     DashboardModule,
     WhatsAppModule,
     MetaWebhookModule,
+    PendingPaymentsModule,
+    InventoryAdjustmentsModule,
+    QuotationsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

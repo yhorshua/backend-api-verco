@@ -1,6 +1,7 @@
 import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn, OneToMany } from 'typeorm';
 import { Sale } from './sale.entity';
 import { CashMovement } from './cash-movement.entity';
+import { User } from './user.entity';
 
 @Entity('SalePayments')
 export class SalePayment {
@@ -21,6 +22,19 @@ export class SalePayment {
   // monto cubierto por ese método (en mixto se parte)
   @Column('decimal', { precision: 10, scale: 2, default: 0 })
   amount: number;
+
+  @Column({ type: 'date', nullable: true })
+  payment_date: string | null;
+
+  @Column({ type: 'int', nullable: true })
+  registered_by_user_id: number | null;
+
+  @ManyToOne(() => User, { nullable: true, onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'registered_by_user_id' })
+  registeredBy: User | null;
+
+  @Column({ type: 'varchar', length: 36, nullable: true })
+  idempotency_key: string | null;
 
   // nro operación (yape/plin/tarjetas)
   @Column({ type: 'varchar', length: 50, nullable: true })

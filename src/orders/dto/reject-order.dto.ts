@@ -1,5 +1,7 @@
-import { IsInt, IsOptional, IsString } from 'class-validator';
+import { IsString, MaxLength, MinLength } from 'class-validator';
 export class RejectOrderDto {
-  @IsInt() rejected_by: number;
-  @IsOptional() @IsString() reason?: string;
+  @IsString()
+  @MinLength(3)
+  @MaxLength(255)
+  reason!: string;
 }

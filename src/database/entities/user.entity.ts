@@ -1,7 +1,8 @@
-import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn, OneToMany } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn, OneToMany, OneToOne } from 'typeorm';
 import { Role } from './role.entity';
 import { Warehouse } from './warehouse.entity';
 import { Attendance } from './marcacion.entity';
+import { Asesor } from './asesor.entity';
 
 @Entity('Users')
 export class User {
@@ -33,7 +34,11 @@ export class User {
   @JoinColumn({ name: 'rol_id' })
   role!: Role;
 
-  @Column({ type: 'datetime', default: () => 'GETDATE()' })
+  @Column({
+    name: 'date_register',
+    type: 'datetime',
+    default: () => 'CURRENT_TIMESTAMP',
+  })
   date_register!: Date;
 
   @Column({ type: 'bit', default: true })
@@ -57,4 +62,10 @@ export class User {
 
   @Column({ type: 'time', nullable: true })
   hora_salida!: string;  // Ej: '18:00:00'
+
+  @OneToOne(
+    () => Asesor,
+    (asesor) => asesor.user,
+  )
+  asesor!: Asesor | null;
 }

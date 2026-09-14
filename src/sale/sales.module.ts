@@ -11,6 +11,7 @@ import { Warehouse } from '../database/entities/warehouse.entity';
 import { User } from '../database/entities/user.entity';
 import { SaleReturn } from 'src/database/entities/sale-return.entity';
 import { CashMovement } from 'src/database/entities/cash-movement.entity';
+import { RolesGuard } from '../auth/roles.guard';
 
 @Module({
   imports: [
@@ -27,6 +28,6 @@ import { CashMovement } from 'src/database/entities/cash-movement.entity';
     ]),
   ],
   controllers: [SaleController], // Controlador de ventas
-  providers: [SaleService], // Servicio de ventas
+  providers: [SaleService, RolesGuard], // Servicio de ventas
 })
 export class SaleModule {}

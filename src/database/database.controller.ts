@@ -1,25 +1,21 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, UseGuards } from '@nestjs/common';
 import { DataSource } from 'typeorm';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { Roles } from '../auth/roles.decorator';
+import { RolesGuard } from '../auth/roles.guard';
 
 @Controller('test-db')
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles('Administrador')
 export class DatabaseController {
   constructor(private readonly dataSource: DataSource) {}
 
   @Get()
   async testConnection() {
-    try {
-      const result = await this.dataSource.query('SELECT GETDATE() AS fecha');
-      return {
-        success: true,
-        message: '✅ Conexión exitosa a SQL Server',
-        fechaServidor: result[0].fecha,
-      };
-    } catch (error) {
-      return {
-        success: false,
-        message: '❌ Error al conectar con SQL Server',
-        error: error.message,
-      };
-    }
+    await this.dataSource.query('SELECT 1');
+    return {
+      success: true,
+      message: 'Conexión a la base de datos disponible',
+    };
   }
 }

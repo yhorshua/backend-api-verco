@@ -4,6 +4,7 @@ import { User } from './user.entity';
 import { SaleDetail } from './sale-detail.entity';
 import { SalePayment } from './sale-payments.entity';
 import { SaleReturn } from './sale-return.entity';
+import { Client } from './client.entity';
 
 @Index(['sale_code', 'warehouse'], { unique: true })
 @Entity('Sales')
@@ -32,6 +33,10 @@ export class Sale {
   @Column({ nullable: true })
   customer_id: number;
 
+  @ManyToOne(() => Client, { nullable: true })
+  @JoinColumn({ name: 'customer_id' })
+  customer: Client | null;
+
   // ✅ MySQL: CURRENT_TIMESTAMP
   @Column({ type: 'datetime', default: () => 'CURRENT_TIMESTAMP' })
   sale_date: Date;
@@ -41,6 +46,21 @@ export class Sale {
 
   @Column({ length: 20, nullable: true })
   payment_method: string;
+
+  @Column('decimal', { precision: 10, scale: 2, default: 0 })
+  monto_adelanto: number;
+
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  metodo_pago_adelanto: 'efectivo' | 'yape' | null;
+
+  @Column('decimal', { precision: 10, scale: 2, default: 0 })
+  monto_restante: number;
+
+  @Column({ type: 'date', nullable: true })
+  fecha_proximo_pago: string | null;
+
+  @Column({ type: 'varchar', length: 20, default: 'PAID' })
+  payment_status: 'PENDING' | 'PAID';
 
   @OneToMany(() => SaleDetail, detail => detail.sale)
   details: SaleDetail[];

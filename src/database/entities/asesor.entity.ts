@@ -1,68 +1,64 @@
 import {
   Column,
   Entity,
+  JoinColumn,
   OneToMany,
+  OneToOne,
   PrimaryGeneratedColumn,
 } from 'typeorm';
 
 import { Lead } from './lead.entity';
-
+import { User } from './user.entity';
 
 @Entity({
-  name:'asesor',
+  name: 'asesor',
 })
 export class Asesor {
-
-
   @PrimaryGeneratedColumn({
-    name:'id',
-    type:'int',
+    name: 'id',
+    type: 'int',
   })
-  id!:number;
-
-
+  id!: number;
 
   @Column({
-    name:'nombre',
-    type:'varchar',
-    length:100,
+    name: 'user_id',
+    type: 'int',
+    unique: true,
   })
-  nombre!:string;
+  user_id!: number;
 
+  @OneToOne(
+    () => User,
+    (user) => user.asesor,
+    {
+      onDelete: 'CASCADE',
+      onUpdate: 'CASCADE',
+    },
+  )
 
+  @JoinColumn({
+    name: 'user_id',
+    referencedColumnName: 'id',
+  })
+  user!: User;
 
   @Column({
-    name:'usuario',
-    type:'varchar',
-    length:50,
-    unique:true,
+    name: 'activo',
+    type: 'boolean',
+    default: true,
   })
-  usuario!:string;
-
-
+  activo!: boolean;
 
   @Column({
-    name:'activo',
-    type:'boolean',
-    default:true,
+    name: 'fecha_ultima_asignacion',
+    type: 'datetime',
+    nullable: true,
   })
-  activo!:boolean;
-
-
-
-  @Column({
-    name:'fecha_ultima_asignacion',
-    type:'timestamp',
-    nullable:true,
-  })
-  fecha_ultima_asignacion!:Date | null;
-
-
+  fecha_ultima_asignacion!: Date | null;
 
   @OneToMany(
-    ()=>Lead,
-    (lead)=>lead.asesor,
+    () => Lead,
+    (lead) => lead.asesor,
   )
-  leads!:Lead[];
-
+  leads!: Lead[];
 }
