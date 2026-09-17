@@ -609,7 +609,7 @@ export class ReportsService {
           size: d.productSize?.size ?? null,
           quantity: String(d.quantity),
           unit_price: String(d.unit_price),
-          purchase_price: String(d.product.unit_price),
+          purchase_price: String(d.product.factory_price),
           line_total: totalAmount,
           profit: productProfit, // Ganancia por línea de venta
         };
