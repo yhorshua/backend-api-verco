@@ -3,6 +3,7 @@ import { UsersService } from '../users/users.service';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { JwtPayload } from './interface'; // Ajusta la ruta según sea necesario
+import { isUserActive } from './user-status';
 
 @Injectable()
 export class AuthService {
@@ -12,15 +13,26 @@ export class AuthService {
   ) { }
 
   async validateUser(email: string, password: string) {
-    const user = await this.usersService.findByEmail(email,);
-    if (user && (await bcrypt.compare(password, user.password_hash))) {
-      const { password_hash, ...result } = user;
-      return result;
+    const user = await this.usersService.findByEmail(email.trim().toLowerCase());
+    if (!user || !(await bcrypt.compare(password, user.password_hash))) return null;
+
+    if (!isUserActive(user.state_user)) {
+      throw new UnauthorizedException(
+        'Tu usuario está desactivado. Comunícate con el administrador.',
+      );
     }
-    return null;
+
+    const { password_hash, ...result } = user;
+    return result;
   }
 
   async login(user: any) {
+    if (!user || !isUserActive(user.state_user)) {
+      throw new UnauthorizedException(
+        'Tu usuario está desactivado. Comunícate con el administrador.',
+      );
+    }
+
     const payload = { email: user.email, sub: user.id, role: user.role.name_role, warehouseId: user.warehouse_id };
     return {
       access_token: this.jwtService.sign(payload),  // Generar el JWT token

@@ -2,6 +2,7 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { UsersService } from '../users/users.service';
+import { isUserActive } from './user-status';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
@@ -16,7 +17,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
 
     async validate(payload: any) {
         const user = await this.usersService.findOne(Number(payload.sub));
-        if (!user || !user.state_user || !user.role) {
+        if (!user || !isUserActive(user.state_user) || !user.role) {
             throw new UnauthorizedException('Usuario inactivo o inexistente');
         }
 
