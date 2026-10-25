@@ -11,6 +11,7 @@ import {
   Min,
   IsNotEmpty,
   IsDateString,
+  MaxLength,
 } from 'class-validator';
 
 export type PaymentMethod =
@@ -103,6 +104,16 @@ export class CreateSaleDto {
   @IsOptional()
   @IsNumber()
   customer_id?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(150)
+  customer_name?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  notes?: string;
 
   // ✅ valida que venga uno de tus métodos
   @IsIn(['efectivo', 'yape', 'plin', 'tarjetaDebito', 'tarjetaCredito', 'yapeEfectivo', 'obsequio', 'credito'])

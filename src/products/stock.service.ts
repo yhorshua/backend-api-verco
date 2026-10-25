@@ -293,6 +293,8 @@ export class StockService {
       warehouse_id: dto.warehouse_id,
       user_id: dto.user_id,
       customer_id: dto.customer_id,
+      customer_name: dto.customer_name?.trim() || null,
+      notes: dto.notes?.trim() || null,
       total_amount,
       payment_method: dto.payment_method,
       ...creditTerms,

@@ -26,6 +26,8 @@ type ReportRow = {
   user_name: string;
 
   customer_id: number | null;
+  customer_name: string | null;
+  notes: string | null;
 
   total_amount: string; // Viene como string si es decimal MySQL
   payment_method: string | null;
@@ -263,6 +265,8 @@ export class ReportsService {
         user_id: s.user_id,
         user_name: s.user?.full_name ?? '',
         customer_id: s.customer_id ?? null,
+        customer_name: s.customer_name ?? null,
+        notes: s.notes ?? null,
         total_amount: String(s.total_amount),
         payment_method: s.payment_method ?? null,
         details: saleDetails,

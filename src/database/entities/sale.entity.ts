@@ -37,6 +37,12 @@ export class Sale {
   @JoinColumn({ name: 'customer_id' })
   customer: Client | null;
 
+  @Column({ type: 'varchar', length: 150, nullable: true })
+  customer_name: string | null;
+
+  @Column({ type: 'varchar', length: 500, nullable: true })
+  notes: string | null;
+
   // ✅ MySQL: CURRENT_TIMESTAMP
   @Column({ type: 'datetime', default: () => 'CURRENT_TIMESTAMP' })
   sale_date: Date;
