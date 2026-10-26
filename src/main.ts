@@ -28,6 +28,7 @@ async function bootstrap() {
       'https://verco-system-xdke-9j17ywjsu-yhorshuas-projects.vercel.app',
       'https://verco.online',
       'https://www.verco.online',
+      'https://verco-web-ecommerce-production.up.railway.app',
     ],
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
     credentials: true,

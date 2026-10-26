@@ -46,6 +46,17 @@ export class ProductsController {
     return await this.productsService.findVercoZapatillas();
   }
 
+  /** Catálogo público utilizado por la web y la aplicación móvil. */
+  @Get('storefront')
+  async getStorefrontProducts(@Query('warehouseId') warehouseIdValue?: string) {
+    const warehouseId = warehouseIdValue ? Number(warehouseIdValue) : undefined;
+    if (warehouseIdValue && (!Number.isInteger(warehouseId) || Number(warehouseId) < 1)) {
+      throw new BadRequestException('warehouseId debe ser válido');
+    }
+
+    return this.productsService.findStorefrontProducts(warehouseId);
+  }
+
   @UseGuards(JwtAuthGuard)
   @Get(':id')
   findOne(@Param('id') id: string) {

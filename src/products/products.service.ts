@@ -109,6 +109,89 @@ export class ProductsService {
     return product;
   }
 
+  async findStorefrontProducts(requestedWarehouseId?: number) {
+    let warehouseId = requestedWarehouseId;
+
+    if (!warehouseId) {
+      const rows = await this.productRepo.manager.query(
+        `SELECT id
+           FROM Warehouses
+          WHERE status = 1
+            AND (
+              LOWER(warehouse_name) LIKE '%producto terminado%'
+              OR LOWER(type) LIKE '%producto terminado%'
+              OR LOWER(type) IN ('finished', 'finished_goods', 'producto_terminado')
+            )
+          ORDER BY CASE
+            WHEN LOWER(warehouse_name) = 'producto terminado' THEN 0
+            ELSE 1
+          END, id
+          LIMIT 1`,
+      );
+
+      if (!rows.length) {
+        throw new NotFoundException(
+          'No se encontró un almacén activo de Producto Terminado',
+        );
+      }
+      warehouseId = Number(rows[0].id);
+    }
+
+    const products = await this.productRepo
+      .createQueryBuilder('product')
+      .leftJoinAndSelect('product.category', 'category')
+      .leftJoinAndSelect('product.images', 'images')
+      .leftJoinAndSelect(
+        'product.stock',
+        'stock',
+        'stock.warehouse_id = :warehouseId AND stock.quantity > 0',
+        { warehouseId },
+      )
+      .leftJoinAndSelect('stock.productSize', 'stockSize')
+      .where('product.status = 1')
+      .andWhere('product.is_published = 1')
+      .andWhere('stock.id IS NOT NULL')
+      .orderBy('product.is_featured', 'DESC')
+      .addOrderBy('product.is_new', 'DESC')
+      .addOrderBy('product.created_at', 'DESC')
+      .getMany();
+
+    return products.map((product) => {
+      const gallery = (product.images ?? [])
+        .map((image: any) => image.image_url ?? image.url ?? image.path)
+        .filter(Boolean);
+      const mainImage = product.product_image || gallery[0] || null;
+
+      return {
+        id: product.id,
+        slug: product.slug || product.article_code.toLowerCase(),
+        article_code: product.article_code,
+        name: product.ecommerce_name || product.article_description,
+        brand: product.brand_name || 'VERCO',
+        category: product.category?.name || 'Calzado',
+        gender: product.gender || 'Unisex',
+        short_description: product.short_description || '',
+        description: product.full_description || product.article_description,
+        price: Number(product.selling_price ?? product.unit_price ?? 0),
+        original_price: product.original_price == null ? null : Number(product.original_price),
+        discount_percent: Number(product.discount_percent || 0),
+        is_new: Boolean(product.is_new),
+        is_featured: Boolean(product.is_featured),
+        color: product.color || 'Único',
+        image: mainImage,
+        images: Array.from(new Set([mainImage, ...gallery].filter(Boolean))),
+        sizes: (product.stock ?? [])
+          .filter((row) => row.productSize && Number(row.quantity) > 0)
+          .map((row) => ({
+            product_size_id: row.product_size_id,
+            size: row.productSize!.size,
+            stock: Number(row.quantity),
+          }))
+          .sort((a, b) => a.size.localeCompare(b.size, 'es', { numeric: true })),
+      };
+    });
+  }
+
 
   async update(id: number, updateProductDto: UpdateProductDto): Promise<Product> {
     const product = await this.findOne(id);

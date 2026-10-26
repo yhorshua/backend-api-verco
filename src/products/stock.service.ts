@@ -78,8 +78,9 @@ export class StockService {
       // 0) Validar warehouse tipo "tienda"
       await this.assertWarehouseIsStore(manager, dto.warehouse_id);
 
-      // 0.1) Debe existir caja abierta para ese warehouse + user
-      const sessionId = await this.requireOpenCashSession(manager, dto.warehouse_id, dto.user_id);
+      // 0.1) La caja se abre por tienda. Cualquier usuario autenticado de esa
+      // tienda puede vender y queda registrado como autor del movimiento.
+      const sessionId = await this.requireOpenCashSession(manager, dto.warehouse_id);
 
       // 1) Correlativo por tienda
       const sale_code = await this.getNextSaleCode(manager, dto.warehouse_id);
@@ -128,27 +129,30 @@ export class StockService {
   }
 
   /**
-   * Caja abierta por warehouse + user
+   * Caja abierta por warehouse.
+   *
+   * CashService impide más de una sesión OPEN por almacén, por lo que exigir
+   * también el user_id aquí provocaba que una caja visible como abierta fuera
+   * rechazada para los demás vendedores de la misma tienda.
    */
   private async requireOpenCashSession(
     manager: EntityManager,
     warehouseId: number,
-    userId: number,
   ): Promise<number> {
     // FOR UPDATE para evitar carreras si cierran/abren en paralelo
     const rows = await manager.query(
       `SELECT id
        FROM CashRegisterSessions
-       WHERE warehouse_id = ? AND user_id = ? AND status = 'OPEN'
+       WHERE warehouse_id = ? AND status = 'OPEN'
        ORDER BY opened_at DESC
        LIMIT 1
        FOR UPDATE`,
-      [warehouseId, userId],
+      [warehouseId],
     );
 
     if (!rows.length) {
       throw new BadRequestException(
-        `No hay caja abierta para warehouse_id=${warehouseId} y user_id=${userId}. Debes abrir caja antes de vender.`,
+        `No hay caja abierta para warehouse_id=${warehouseId}. Debes abrir caja antes de vender.`,
       );
     }
 
