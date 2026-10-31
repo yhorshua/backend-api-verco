@@ -1,5 +1,11 @@
 // dto/create-client.dto.ts
-import { IsString, IsOptional, IsEmail, IsNotEmpty, MaxLength } from 'class-validator';
+import {
+  IsString,
+  IsOptional,
+  IsEmail,
+  IsNotEmpty,
+  MaxLength,
+} from 'class-validator';
 
 export class CreateClientDto {
   @IsNotEmpty()
@@ -34,5 +40,5 @@ export class CreateClientDto {
   @IsOptional() @IsString() country?: string;
 
   @IsOptional() @IsEmail() email?: string;
-  @IsOptional() @IsString() phone?: string;
+  @IsOptional() @IsString() @MaxLength(30) phone?: string;
 }

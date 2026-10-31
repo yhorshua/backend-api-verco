@@ -1,5 +1,9 @@
 // clients.service.ts
-import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Client } from '../database/entities/client.entity';
@@ -14,8 +18,20 @@ function normalizeCode(v: string) {
 }
 
 function normalizeText(v?: string): string | null {
-  const s = String(v ?? '').trim();
+  const s = String(v ?? '')
+    .trim()
+    .replace(/\s+/g, ' ');
   return s.length ? s : null;
+}
+
+function normalizeComparableText(v?: string): string | null {
+  const s = normalizeText(v);
+  return s ? s.toLocaleLowerCase('es-PE') : null;
+}
+
+function normalizePhone(v?: string): string | null {
+  const digits = onlyDigits(v ?? '');
+  return digits.length ? digits : null;
 }
 
 function validateDocByCode(code: string, num: string) {
@@ -25,12 +41,13 @@ function validateDocByCode(code: string, num: string) {
   return null;
 }
 
-function isStale(last: Date | null, months = 6) {
-  if (!last) return true;
-  const now = new Date();
-  const cutoff = new Date(now);
-  cutoff.setMonth(cutoff.getMonth() - months);
-  return last < cutoff;
+type DuplicateField = 'document' | 'business_name' | 'phone' | 'trade_name';
+
+function duplicateFieldLabel(field: DuplicateField, documentType: string) {
+  if (field === 'document') return documentType === '06' ? 'RUC' : 'DNI';
+  if (field === 'business_name') return 'nombre o razón social';
+  if (field === 'phone') return 'teléfono';
+  return 'nombre comercial';
 }
 
 @Injectable()
@@ -43,83 +60,147 @@ export class ClientsService {
   async createOrClaim(dto: CreateClientDto, sellerId: number) {
     const document_type = normalizeCode(dto.document_type_code); // ✅ code
     const document_number = onlyDigits(dto.document_number);
+    const business_name = normalizeText(dto.business_name);
+    const comparableBusinessName = normalizeComparableText(dto.business_name);
+    const trade_name = normalizeText(dto.trade_name);
+    const comparableTradeName = normalizeComparableText(dto.trade_name);
+    const phone = normalizePhone(dto.phone);
 
     const docErr = validateDocByCode(document_type, document_number);
     if (docErr) throw new BadRequestException(docErr);
 
-    if (!dto.business_name?.trim()) {
+    if (!business_name || !comparableBusinessName) {
       throw new BadRequestException('Razón social / nombre es obligatorio');
     }
 
-    // 🔎 Buscar existente (mismo code+number)
-    const existing = await this.clientRepository.findOne({
-      where: { document_type, document_number } as any,
-    });
+    const conditions = [
+      '(client.document_type = :documentType AND client.document_number = :documentNumber)',
+      'LOWER(TRIM(client.business_name)) = :businessName',
+    ];
+    const parameters: Record<string, string> = {
+      documentType: document_type,
+      documentNumber: document_number,
+      businessName: comparableBusinessName,
+    };
 
-    if (!existing) {
-      const client = this.clientRepository.create({
-        document_type,
-        document_number,
-        business_name: dto.business_name.trim(),
-        trade_name: normalizeText(dto.trade_name),
-        address: normalizeText(dto.address),
-        district: normalizeText(dto.district),
-        province: normalizeText(dto.province),
-        department: normalizeText(dto.department),
-        country: normalizeText(dto.country) ?? 'Perú',
-        phone: normalizeText(dto.phone),
-        email: normalizeText(dto.email),
-        seller_id: sellerId,
-        last_order_at: null,
-        updated_at: new Date(),
-      } as any);
-
-      try {
-        return await this.clientRepository.save(client);
-      } catch (e: any) {
-        // ✅ NO conviertas todos los errores en "ya existe"
-        // Solo si es duplicado (MySQL ER_DUP_ENTRY = 1062)
-        if (e?.code === 'ER_DUP_ENTRY' || e?.errno === 1062) {
-          throw new BadRequestException('Este cliente ya está registrado');
-        }
-        throw e;
-      }
+    if (comparableTradeName) {
+      conditions.push('LOWER(TRIM(client.trade_name)) = :tradeName');
+      parameters.tradeName = comparableTradeName;
     }
 
-    // si existe: política 6 meses
-    if (!existing.seller_id) {
-      existing.seller_id = sellerId;
-    } else if (existing.seller_id !== sellerId) {
-      const stale = isStale(existing.last_order_at, 6);
-      if (!stale) {
-        throw new ForbiddenException(
-          'Este cliente pertenece a otro vendedor (aún activo). Solo pasa a libre después de 6 meses sin pedidos.',
+    if (phone) {
+      conditions.push(
+        "REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(TRIM(client.phone), ' ', ''), '-', ''), '(', ''), ')', ''), '+', ''), '.', '') = :phone",
+      );
+      parameters.phone = phone;
+    }
+
+    const possibleDuplicates = await this.clientRepository
+      .createQueryBuilder('client')
+      .where(conditions.join(' OR '), parameters)
+      .getMany();
+
+    const duplicateMatches = possibleDuplicates
+      .map((client): { client: Client; field: DuplicateField } | null => {
+        if (
+          client.document_type === document_type &&
+          onlyDigits(client.document_number) === document_number
+        ) {
+          return { client, field: 'document' };
+        }
+        if (
+          normalizeComparableText(client.business_name) ===
+          comparableBusinessName
+        ) {
+          return { client, field: 'business_name' };
+        }
+        if (phone && normalizePhone(client.phone ?? undefined) === phone) {
+          return { client, field: 'phone' };
+        }
+        if (
+          comparableTradeName &&
+          normalizeComparableText(client.trade_name ?? undefined) ===
+            comparableTradeName
+        ) {
+          return { client, field: 'trade_name' };
+        }
+        return null;
+      })
+      .filter(
+        (match): match is { client: Client; field: DuplicateField } =>
+          match !== null,
+      );
+
+    if (duplicateMatches.length) {
+      const matchAssignedToAnotherSeller = duplicateMatches.find(
+        ({ client }) =>
+          client.seller_id !== null &&
+          Number(client.seller_id) !== Number(sellerId),
+      );
+      const match = matchAssignedToAnotherSeller ?? duplicateMatches[0];
+      const fieldLabel = duplicateFieldLabel(match.field, document_type);
+
+      if (
+        match.client.seller_id !== null &&
+        Number(match.client.seller_id) !== Number(sellerId)
+      ) {
+        throw new ConflictException(
+          `Ya existe un cliente con el mismo ${fieldLabel} y tiene un vendedor asignado.`,
         );
       }
-      existing.seller_id = sellerId;
+
+      if (match.client.seller_id !== null) {
+        throw new ConflictException(
+          `Este cliente ya está registrado en tu cartera con el mismo ${fieldLabel}.`,
+        );
+      }
+
+      throw new ConflictException(
+        `Este cliente ya existe con el mismo ${fieldLabel} y no puede registrarse nuevamente.`,
+      );
     }
 
-    // actualizar datos (sin pisar con vacío)
-    existing.business_name = dto.business_name.trim();
-    if (dto.trade_name !== undefined) existing.trade_name = normalizeText(dto.trade_name);
-    if (dto.address !== undefined) existing.address = normalizeText(dto.address);
-    if (dto.district !== undefined) existing.district = normalizeText(dto.district);
-    if (dto.province !== undefined) existing.province = normalizeText(dto.province);
-    if (dto.department !== undefined) existing.department = normalizeText(dto.department);
-    if (dto.country !== undefined) existing.country = normalizeText(dto.country) ?? 'Perú';
-    if (dto.phone !== undefined) existing.phone = normalizeText(dto.phone);
-    if (dto.email !== undefined) existing.email = normalizeText(dto.email);
+    const client = this.clientRepository.create({
+      document_type,
+      document_number,
+      business_name,
+      trade_name,
+      address: normalizeText(dto.address),
+      district: normalizeText(dto.district),
+      province: normalizeText(dto.province),
+      department: normalizeText(dto.department),
+      country: normalizeText(dto.country) ?? 'Perú',
+      phone,
+      email: normalizeText(dto.email),
+      seller_id: sellerId,
+      last_order_at: null,
+      updated_at: new Date(),
+    } as any);
 
-    existing.updated_at = new Date();
-    return this.clientRepository.save(existing);
+    try {
+      return await this.clientRepository.save(client);
+    } catch (e: any) {
+      if (e?.code === 'ER_DUP_ENTRY' || e?.errno === 1062) {
+        throw new ConflictException('Este cliente ya está registrado.');
+      }
+      throw e;
+    }
   }
 
   async findForUser(userId: number, roleName: string) {
     const role = String(roleName || '').toLowerCase();
 
     // ✅ admin/jefe ventas ve todo
-    if (role === 'administrador' || role === 'admin' || role === 'jefe ventas' || role === 'jefe_ventas') {
-      return this.clientRepository.find({ order: { created_at: 'DESC' as any }, take: 500 });
+    if (
+      role === 'administrador' ||
+      role === 'admin' ||
+      role === 'jefe ventas' ||
+      role === 'jefe_ventas'
+    ) {
+      return this.clientRepository.find({
+        order: { created_at: 'DESC' as any },
+        take: 500,
+      });
     }
 
     return this.clientRepository.find({
