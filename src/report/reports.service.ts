@@ -1,4 +1,9 @@
-import { BadRequestException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, Repository } from 'typeorm';
 
@@ -11,7 +16,10 @@ import { User } from '../database/entities/user.entity';
 import { SalesReportQueryDto } from './dto/sales-report.query.dto';
 import { CashMovement } from 'src/database/entities/cash-movement.entity';
 import { CashRegisterSession } from 'src/database/entities/cash-register-session.entity';
-import { DetailStatus, WebSaleDetail } from 'src/database/entities/webDetail.entity';
+import {
+  DetailStatus,
+  WebSaleDetail,
+} from 'src/database/entities/webDetail.entity';
 import { WebSale, WebSaleStatus } from 'src/database/entities/webSale.entity';
 
 type ReportRow = {
@@ -59,23 +67,258 @@ type ReportRow = {
   }>;
 };
 
+type CommissionTotals = {
+  quantity: number;
+  commissionable_quantity: number;
+  purchase_amount: number;
+  sales_amount: number;
+  profit: number;
+  commission: number;
+};
+
+const COMMISSION_PER_UNIT = 1;
+
+function emptyCommissionTotals(): CommissionTotals {
+  return {
+    quantity: 0,
+    commissionable_quantity: 0,
+    purchase_amount: 0,
+    sales_amount: 0,
+    profit: 0,
+    commission: 0,
+  };
+}
+
+function round2(value: number) {
+  return Number(value.toFixed(2));
+}
+
+function normalizeCommissionCategory(value?: string | null) {
+  const name = String(value ?? '').trim() || 'Sin categoría';
+  const comparable = name
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase();
+
+  if (comparable.includes('ZAPATILLA') || comparable.includes('CALZADO')) {
+    return 'Zapatillas';
+  }
+  if (comparable.includes('ACCESORIO')) {
+    return 'Accesorios';
+  }
+  return name;
+}
+
+function getCommissionableQuantity(
+  category: string,
+  quantity: number,
+  unitPrice: number,
+) {
+  if (category !== 'Zapatillas' || quantity !== 2) return quantity;
+
+  const promotionTotal = round2(quantity * unitPrice);
+  return promotionTotal === 140 || promotionTotal === 150 ? 1 : quantity;
+}
+
+function addCommissionTotals(
+  target: CommissionTotals,
+  values: CommissionTotals,
+) {
+  target.quantity += values.quantity;
+  target.commissionable_quantity += values.commissionable_quantity;
+  target.purchase_amount += values.purchase_amount;
+  target.sales_amount += values.sales_amount;
+  target.profit += values.profit;
+  target.commission += values.commission;
+}
+
+function finalizeCommissionTotals(totals: CommissionTotals): CommissionTotals {
+  return {
+    quantity: round2(totals.quantity),
+    commissionable_quantity: round2(totals.commissionable_quantity),
+    purchase_amount: round2(totals.purchase_amount),
+    sales_amount: round2(totals.sales_amount),
+    profit: round2(totals.profit),
+    commission: round2(totals.commission),
+  };
+}
+
+export function buildSellerCommissionSummary(details: SaleDetail[]) {
+  const overall = emptyCommissionTotals();
+  const categoryTotals = new Map<string, CommissionTotals>();
+  const sellers = new Map<
+    number,
+    {
+      seller_id: number;
+      seller_name: string;
+      totals: CommissionTotals;
+      categories: Map<
+        string,
+        {
+          category: string;
+          totals: CommissionTotals;
+          sales: any[];
+        }
+      >;
+    }
+  >();
+
+  for (const detail of details) {
+    if (!detail.sale) continue;
+
+    const quantity = Number(detail.quantity ?? 0);
+    const unitPrice = Number(detail.unit_price ?? 0);
+    const snapshotPurchasePrice = Number(detail.factory_price_at_sale ?? 0);
+    const purchasePrice =
+      snapshotPurchasePrice > 0
+        ? snapshotPurchasePrice
+        : Number(detail.product?.factory_price ?? 0);
+    const categoryName = normalizeCommissionCategory(
+      detail.product?.category?.name,
+    );
+    const commissionableQuantity = getCommissionableQuantity(
+      categoryName,
+      quantity,
+      unitPrice,
+    );
+    const purchaseAmount = quantity * purchasePrice;
+    const salesAmount = quantity * unitPrice;
+    const profit = salesAmount - purchaseAmount;
+    const commission = commissionableQuantity * COMMISSION_PER_UNIT;
+    const lineTotals: CommissionTotals = {
+      quantity,
+      commissionable_quantity: commissionableQuantity,
+      purchase_amount: purchaseAmount,
+      sales_amount: salesAmount,
+      profit,
+      commission,
+    };
+
+    addCommissionTotals(overall, lineTotals);
+
+    const globalCategory =
+      categoryTotals.get(categoryName) ?? emptyCommissionTotals();
+    addCommissionTotals(globalCategory, lineTotals);
+    categoryTotals.set(categoryName, globalCategory);
+
+    const sellerId = Number(detail.sale.user_id);
+    if (!sellers.has(sellerId)) {
+      sellers.set(sellerId, {
+        seller_id: sellerId,
+        seller_name: detail.sale.user?.full_name ?? 'Sin vendedor',
+        totals: emptyCommissionTotals(),
+        categories: new Map(),
+      });
+    }
+
+    const seller = sellers.get(sellerId)!;
+    addCommissionTotals(seller.totals, lineTotals);
+
+    if (!seller.categories.has(categoryName)) {
+      seller.categories.set(categoryName, {
+        category: categoryName,
+        totals: emptyCommissionTotals(),
+        sales: [],
+      });
+    }
+
+    const sellerCategory = seller.categories.get(categoryName)!;
+    addCommissionTotals(sellerCategory.totals, lineTotals);
+    sellerCategory.sales.push({
+      sale_id: detail.sale.id,
+      sale_code: detail.sale.sale_code,
+      sale_date: detail.sale.sale_date,
+      customer_name: detail.sale.customer_name ?? null,
+      notes: detail.sale.notes ?? null,
+      payment_method: detail.sale.payment_method ?? null,
+      sale_total: round2(Number(detail.sale.total_amount ?? 0)),
+      product_id: detail.product_id,
+      article_code: detail.product?.article_code,
+      article_description: detail.product?.article_description,
+      size: detail.productSize?.size ?? null,
+      quantity: round2(quantity),
+      commissionable_quantity: round2(commissionableQuantity),
+      unit_price: round2(unitPrice),
+      purchase_price: round2(purchasePrice),
+      purchase_total: round2(purchaseAmount),
+      sales_total: round2(salesAmount),
+      profit: round2(profit),
+      commission: round2(commission),
+    });
+  }
+
+  const categories = Array.from(categoryTotals.entries())
+    .map(([category, totals]) => ({
+      category,
+      ...finalizeCommissionTotals(totals),
+    }))
+    .sort((a, b) => b.sales_amount - a.sales_amount);
+
+  const sellerRows = Array.from(sellers.values())
+    .map((seller) => {
+      const totals = finalizeCommissionTotals(seller.totals);
+      return {
+        seller_id: seller.seller_id,
+        seller_name: seller.seller_name,
+        total_pairs: totals.commissionable_quantity,
+        total_quantity: totals.quantity,
+        total_commissionable_quantity: totals.commissionable_quantity,
+        total_purchase_amount: totals.purchase_amount,
+        total_sales_amount: totals.sales_amount,
+        total_profit: totals.profit,
+        total_commission: totals.commission,
+        categories: Array.from(seller.categories.values())
+          .map((category) => {
+            const categoryTotalsFinal = finalizeCommissionTotals(
+              category.totals,
+            );
+            return {
+              category: category.category,
+              pairs: categoryTotalsFinal.commissionable_quantity,
+              amount: categoryTotalsFinal.sales_amount,
+              quantity: categoryTotalsFinal.quantity,
+              commissionable_quantity:
+                categoryTotalsFinal.commissionable_quantity,
+              purchase_amount: categoryTotalsFinal.purchase_amount,
+              sales_amount: categoryTotalsFinal.sales_amount,
+              profit: categoryTotalsFinal.profit,
+              commission: categoryTotalsFinal.commission,
+              sales: category.sales,
+            };
+          })
+          .sort((a, b) => b.sales_amount - a.sales_amount),
+      };
+    })
+    .sort((a, b) => b.total_sales_amount - a.total_sales_amount);
+
+  return {
+    totals: finalizeCommissionTotals(overall),
+    categories,
+    sellers: sellerRows,
+  };
+}
 
 @Injectable()
 export class ReportsService {
   constructor(
     @InjectRepository(Sale) private readonly saleRepo: Repository<Sale>,
-    @InjectRepository(SaleDetail) private readonly saleDetailRepo: Repository<SaleDetail>,
-    @InjectRepository(SalePayment) private readonly salePaymentRepo: Repository<SalePayment>,
-    @InjectRepository(CashMovement) private readonly cashMovementRepo: Repository<CashMovement>, // Asumimos que CashMovement contiene los gastos operativos
-    @InjectRepository(Warehouse) private readonly warehouseRepo: Repository<Warehouse>,
+    @InjectRepository(SaleDetail)
+    private readonly saleDetailRepo: Repository<SaleDetail>,
+    @InjectRepository(SalePayment)
+    private readonly salePaymentRepo: Repository<SalePayment>,
+    @InjectRepository(CashMovement)
+    private readonly cashMovementRepo: Repository<CashMovement>, // Asumimos que CashMovement contiene los gastos operativos
+    @InjectRepository(Warehouse)
+    private readonly warehouseRepo: Repository<Warehouse>,
     @InjectRepository(User) private readonly userRepo: Repository<User>,
-    @InjectRepository(CashRegisterSession) private readonly cashRegisterSessionRepo: Repository<CashRegisterSession>,
+    @InjectRepository(CashRegisterSession)
+    private readonly cashRegisterSessionRepo: Repository<CashRegisterSession>,
     @InjectRepository(WebSale)
     private readonly webSaleRepository: Repository<WebSale>,
 
     @InjectRepository(WebSaleDetail)
     private readonly webSaleDetailRepository: Repository<WebSaleDetail>,
-  ) { }
+  ) {}
 
   private addOneDay(dateISO: string): string {
     const [year, month, day] = dateISO.split('-').map(Number);
@@ -123,14 +366,21 @@ export class ReportsService {
     const { start, endExclusive } = this.buildRange(dto);
 
     // 1) Obtener datos de warehouse + (opcional) user
-    const warehouse = await this.warehouseRepo.findOne({ where: { id: dto.warehouseId } });
-    if (!warehouse) throw new BadRequestException(`warehouseId ${dto.warehouseId} not found`);
+    const warehouse = await this.warehouseRepo.findOne({
+      where: { id: dto.warehouseId },
+    });
+    if (!warehouse)
+      throw new BadRequestException(`warehouseId ${dto.warehouseId} not found`);
 
     let seller: User | null = null;
     if (dto.userId) {
-      seller = await this.userRepo.findOne({ where: { id: dto.userId, warehouse_id: dto.warehouseId } as any });
+      seller = await this.userRepo.findOne({
+        where: { id: dto.userId, warehouse_id: dto.warehouseId } as any,
+      });
       if (!seller) {
-        throw new BadRequestException(`userId ${dto.userId} not found in warehouseId ${dto.warehouseId}`);
+        throw new BadRequestException(
+          `userId ${dto.userId} not found in warehouseId ${dto.warehouseId}`,
+        );
       }
     }
 
@@ -227,7 +477,7 @@ export class ReportsService {
       const saleDetails = (detailsBySale.get(s.id) ?? []).map((d) => {
         const qty: any = d.quantity as any;
         const up: any = d.unit_price as any;
-        const lineTotal = (qty * up).toFixed(2);  // Calculando el total de línea
+        const lineTotal = (qty * up).toFixed(2); // Calculando el total de línea
 
         return {
           id: d.id,
@@ -242,7 +492,9 @@ export class ReportsService {
           series: d.product?.series?.code ?? '',
           stock_movement_quantity: d.stockMovement?.quantity ?? 0,
           movement_type: d.stockMovement?.movement_type ?? '',
-          movement_date: d.stockMovement?.created_at ? d.stockMovement?.created_at.toISOString() : '',
+          movement_date: d.stockMovement?.created_at
+            ? d.stockMovement?.created_at.toISOString()
+            : '',
         };
       });
 
@@ -251,7 +503,8 @@ export class ReportsService {
         method: p.method,
         amount: String(p.amount),
         operation_number: p.operation_number ?? null,
-        cash_received: p.cash_received === null ? null : String(p.cash_received),
+        cash_received:
+          p.cash_received === null ? null : String(p.cash_received),
         cash_change: p.cash_change === null ? null : String(p.cash_change),
         notes: p.notes ?? null,
       }));
@@ -261,7 +514,8 @@ export class ReportsService {
         sale_code: s.sale_code,
         sale_date: s.sale_date,
         warehouse_id: s.warehouse_id,
-        warehouse_name: s.warehouse?.warehouse_name ?? warehouse.warehouse_name ?? null,
+        warehouse_name:
+          s.warehouse?.warehouse_name ?? warehouse.warehouse_name ?? null,
         user_id: s.user_id,
         user_name: s.user?.full_name ?? '',
         customer_id: s.customer_id ?? null,
@@ -275,8 +529,19 @@ export class ReportsService {
     });
 
     // 7) Resúmenes útiles para el PDF/dashboard
-    const summaryBySellerMap = new Map<number, { user_id: number; user_name: string; total_sales: number; total_amount: number }>();
-    const summaryByPaymentMap = new Map<string, { method: string; total_amount: number; count: number }>();
+    const summaryBySellerMap = new Map<
+      number,
+      {
+        user_id: number;
+        user_name: string;
+        total_sales: number;
+        total_amount: number;
+      }
+    >();
+    const summaryByPaymentMap = new Map<
+      string,
+      { method: string; total_amount: number; count: number }
+    >();
 
     let totalAmount = 0;
 
@@ -300,14 +565,22 @@ export class ReportsService {
         for (const p of s.payments) {
           const m = p.method || 'unknown';
           const a = Number(p.amount);
-          const prev = summaryByPaymentMap.get(m) ?? { method: m, total_amount: 0, count: 0 };
+          const prev = summaryByPaymentMap.get(m) ?? {
+            method: m,
+            total_amount: 0,
+            count: 0,
+          };
           prev.total_amount += isNaN(a) ? 0 : a;
           prev.count += 1;
           summaryByPaymentMap.set(m, prev);
         }
       } else {
         const m = s.payment_method || 'unknown';
-        const prev = summaryByPaymentMap.get(m) ?? { method: m, total_amount: 0, count: 0 };
+        const prev = summaryByPaymentMap.get(m) ?? {
+          method: m,
+          total_amount: 0,
+          count: 0,
+        };
         prev.total_amount += isNaN(amt) ? 0 : amt;
         prev.count += 1;
         summaryByPaymentMap.set(m, prev);
@@ -326,17 +599,23 @@ export class ReportsService {
         total_amount: Number(totalAmount.toFixed(2)),
       },
       sales: reportSales,
-      summary_by_seller: Array.from(summaryBySellerMap.values()).sort((a, b) => b.total_amount - a.total_amount),
-      summary_by_payment_method: Array.from(summaryByPaymentMap.values()).sort((a, b) => b.total_amount - a.total_amount),
+      summary_by_seller: Array.from(summaryBySellerMap.values()).sort(
+        (a, b) => b.total_amount - a.total_amount,
+      ),
+      summary_by_payment_method: Array.from(summaryByPaymentMap.values()).sort(
+        (a, b) => b.total_amount - a.total_amount,
+      ),
     };
   }
-
 
   async getCashClosureReport(dto: SalesReportQueryDto) {
     const { start, endExclusive } = this.buildRange(dto);
 
-    const warehouse = await this.warehouseRepo.findOne({ where: { id: dto.warehouseId } });
-    if (!warehouse) throw new BadRequestException(`warehouseId ${dto.warehouseId} not found`);
+    const warehouse = await this.warehouseRepo.findOne({
+      where: { id: dto.warehouseId },
+    });
+    if (!warehouse)
+      throw new BadRequestException(`warehouseId ${dto.warehouseId} not found`);
 
     // Obtener las ventas en el rango de fechas
     const qb = this.saleRepo
@@ -347,6 +626,10 @@ export class ReportsService {
       .andWhere('s.sale_date >= :start', { start })
       .andWhere('s.sale_date < :endExclusive', { endExclusive })
       .orderBy('s.sale_date', 'DESC');
+
+    if (dto.userId) {
+      qb.andWhere('s.user_id = :userId', { userId: dto.userId });
+    }
 
     const sales = await qb.getMany();
     const saleIds = sales.map((x) => x.id);
@@ -423,7 +706,8 @@ export class ReportsService {
         method: p.method,
         amount: String(p.amount),
         operation_number: p.operation_number ?? null,
-        cash_received: p.cash_received === null ? null : String(p.cash_received),
+        cash_received:
+          p.cash_received === null ? null : String(p.cash_received),
         cash_change: p.cash_change === null ? null : String(p.cash_change),
         notes: p.notes ?? null,
       }));
@@ -433,7 +717,8 @@ export class ReportsService {
         sale_code: s.sale_code,
         sale_date: s.sale_date,
         warehouse_id: s.warehouse_id,
-        warehouse_name: s.warehouse?.warehouse_name ?? warehouse.warehouse_name ?? null,
+        warehouse_name:
+          s.warehouse?.warehouse_name ?? warehouse.warehouse_name ?? null,
         user_id: s.user_id,
         user_name: s.user?.full_name ?? '',
         total_amount: String(s.total_amount),
@@ -452,7 +737,10 @@ export class ReportsService {
         start,
         end: endExclusive,
         total_sales: reportSales.length,
-        total_amount: reportSales.reduce((sum, s) => sum + parseFloat(s.total_amount), 0),
+        total_amount: reportSales.reduce(
+          (sum, s) => sum + parseFloat(s.total_amount),
+          0,
+        ),
       },
       sales: reportSales,
     };
@@ -461,8 +749,11 @@ export class ReportsService {
   async getInventoryIngressReport(dto: SalesReportQueryDto) {
     const { start, endExclusive } = this.buildRange(dto);
 
-    const warehouse = await this.warehouseRepo.findOne({ where: { id: dto.warehouseId } });
-    if (!warehouse) throw new BadRequestException(`warehouseId ${dto.warehouseId} not found`);
+    const warehouse = await this.warehouseRepo.findOne({
+      where: { id: dto.warehouseId },
+    });
+    if (!warehouse)
+      throw new BadRequestException(`warehouseId ${dto.warehouseId} not found`);
 
     const qb = this.saleDetailRepo
       .createQueryBuilder('d')
@@ -515,11 +806,13 @@ export class ReportsService {
     return Number(result?.total || 0);
   }
 
-
   async getWeeklyProfitReport(dto: SalesReportQueryDto) {
     const { start, endExclusive } = this.buildRange(dto);
-    const warehouse = await this.warehouseRepo.findOne({ where: { id: dto.warehouseId } });
-    if (!warehouse) throw new BadRequestException(`warehouseId ${dto.warehouseId} not found`);
+    const warehouse = await this.warehouseRepo.findOne({
+      where: { id: dto.warehouseId },
+    });
+    if (!warehouse)
+      throw new BadRequestException(`warehouseId ${dto.warehouseId} not found`);
 
     // Obtener las ventas en el rango de fechas
     const qb = this.saleRepo
@@ -531,6 +824,10 @@ export class ReportsService {
       .andWhere('s.sale_date < :endExclusive', { endExclusive })
       .orderBy('s.sale_date', 'DESC');
 
+    if (dto.userId) {
+      qb.andWhere('s.user_id = :userId', { userId: dto.userId });
+    }
+
     const sales = await qb.getMany();
     const saleIds = sales.map((x) => x.id);
 
@@ -539,10 +836,20 @@ export class ReportsService {
         meta: {
           total_sales: 0,
           total_amount: 0,
+          total_quantity: 0,
+          total_purchase_amount: 0,
+          total_sales_amount: 0,
+          total_profit: 0,
           total_operating_expenses: 0,
           net_profit: 0,
         },
         sales: [],
+        categories: [],
+        total_quantity: 0,
+        total_profit: 0,
+        total_cost: 0,
+        total_cash_amount: 0,
+        total_virtual_amount: 0,
       };
     }
 
@@ -551,7 +858,7 @@ export class ReportsService {
       .createQueryBuilder('d')
       .leftJoinAndSelect('d.product', 'p')
       .leftJoinAndSelect('d.productSize', 'ps')
-      .leftJoinAndSelect('p.category', 'c')  // Obtener la categoría del producto
+      .leftJoinAndSelect('p.category', 'c') // Obtener la categoría del producto
       .where('d.sale_id IN (:...saleIds)', { saleIds })
       .getMany();
 
@@ -582,25 +889,61 @@ export class ReportsService {
     let totalVirtualAmount = 0;
     let totalCost = 0;
     let totalProfit = 0;
+    let totalQuantity = 0;
+    const categoryTotals = new Map<
+      string,
+      {
+        category: string;
+        quantity: number;
+        purchase_amount: number;
+        sales_amount: number;
+        profit: number;
+      }
+    >();
 
     const salesDetails = sales.map((s) => {
       const saleDetails = (detailsBySale.get(s.id) ?? []).map((d) => {
         const qty = Number(d.quantity);
         const unitPrice = Number(d.unit_price);
-        const purchasePrice = Number(d.product.unit_price); // Precio de compra
-        const lineTotal = (qty * unitPrice).toFixed(2);
-        const productProfit = (qty * (unitPrice - purchasePrice)).toFixed(2); // Ganancia por producto
+        const snapshotPurchasePrice = Number(d.factory_price_at_sale ?? 0);
+        const purchasePrice =
+          snapshotPurchasePrice > 0
+            ? snapshotPurchasePrice
+            : Number(d.product.factory_price ?? 0);
+        const lineTotal = qty * unitPrice;
+        const purchaseTotal = qty * purchasePrice;
+        const productProfit = lineTotal - purchaseTotal;
+        const categoryName = normalizeCommissionCategory(
+          d.product.category?.name,
+        );
 
-        totalAmount += Number(lineTotal);
-        totalCost += qty * purchasePrice;
-        totalProfit += Number(productProfit);
+        totalAmount += lineTotal;
+        totalCost += purchaseTotal;
+        totalProfit += productProfit;
+        totalQuantity += qty;
+
+        const category = categoryTotals.get(categoryName) ?? {
+          category: categoryName,
+          quantity: 0,
+          purchase_amount: 0,
+          sales_amount: 0,
+          profit: 0,
+        };
+        category.quantity += qty;
+        category.purchase_amount += purchaseTotal;
+        category.sales_amount += lineTotal;
+        category.profit += productProfit;
+        categoryTotals.set(categoryName, category);
 
         // Separar por tipo de pago
         const paymentMethod = s.payment_method || 'unknown';
         if (paymentMethod === 'EFFECTIVO') {
-          totalCashAmount += Number(lineTotal);
-        } else if (paymentMethod === 'YAPE' || paymentMethod === 'TARJETA DE DÉBITO') {
-          totalVirtualAmount += Number(lineTotal);
+          totalCashAmount += lineTotal;
+        } else if (
+          paymentMethod === 'YAPE' ||
+          paymentMethod === 'TARJETA DE DÉBITO'
+        ) {
+          totalVirtualAmount += lineTotal;
         }
 
         return {
@@ -609,13 +952,14 @@ export class ReportsService {
           article_code: d.product.article_code,
           article_description: d.product.article_description,
           category_id: d.product.category?.id ?? null,
-          category_name: d.product.category?.name ?? 'SIN CATEGORIA',
+          category_name: categoryName,
           size: d.productSize?.size ?? null,
           quantity: String(d.quantity),
           unit_price: String(d.unit_price),
-          purchase_price: String(d.product.factory_price),
-          line_total: totalAmount,
-          profit: productProfit, // Ganancia por línea de venta
+          purchase_price: String(round2(purchasePrice)),
+          purchase_total: round2(purchaseTotal),
+          line_total: round2(lineTotal),
+          profit: round2(productProfit),
         };
       });
 
@@ -624,7 +968,8 @@ export class ReportsService {
         sale_code: s.sale_code,
         sale_date: s.sale_date,
         warehouse_id: s.warehouse_id,
-        warehouse_name: s.warehouse?.warehouse_name ?? warehouse.warehouse_name ?? null,
+        warehouse_name:
+          s.warehouse?.warehouse_name ?? warehouse.warehouse_name ?? null,
         user_id: s.user_id,
         user_name: s.user?.full_name ?? '',
         total_amount: String(s.total_amount),
@@ -634,31 +979,49 @@ export class ReportsService {
     });
 
     // 5) Calcular la utilidad neta después de los gastos operativos
-    const operatingExpenses = await this.getOperatingExpenses(start, endExclusive);
+    const operatingExpenses = await this.getOperatingExpenses(
+      start,
+      endExclusive,
+    );
     const netProfit = totalProfit - operatingExpenses;
+    const categories = Array.from(categoryTotals.values())
+      .map((category) => ({
+        category: category.category,
+        quantity: round2(category.quantity),
+        purchase_amount: round2(category.purchase_amount),
+        sales_amount: round2(category.sales_amount),
+        profit: round2(category.profit),
+      }))
+      .sort((a, b) => b.sales_amount - a.sales_amount);
 
     return {
       meta: {
         total_sales: salesDetails.length,
-        total_amount: totalAmount,
-        total_operating_expenses: operatingExpenses,
-        net_profit: netProfit,
+        total_amount: round2(totalAmount),
+        total_quantity: round2(totalQuantity),
+        total_purchase_amount: round2(totalCost),
+        total_sales_amount: round2(totalAmount),
+        total_profit: round2(totalProfit),
+        total_operating_expenses: round2(operatingExpenses),
+        net_profit: round2(netProfit),
       },
       sales: salesDetails,
-      total_profit: totalProfit,
-      total_cost: totalCost,
-      total_cash_amount: totalCashAmount,
-      total_virtual_amount: totalVirtualAmount,
+      categories,
+      total_quantity: round2(totalQuantity),
+      total_profit: round2(totalProfit),
+      total_cost: round2(totalCost),
+      total_cash_amount: round2(totalCashAmount),
+      total_virtual_amount: round2(totalVirtualAmount),
     };
   }
 
-
-
-
   async getSellerCommissionReport(dto: SalesReportQueryDto) {
     const { start, endExclusive } = this.buildRange(dto);
-    const warehouse = await this.warehouseRepo.findOne({ where: { id: dto.warehouseId } });
-    if (!warehouse) throw new BadRequestException(`warehouseId ${dto.warehouseId} not found`);
+    const warehouse = await this.warehouseRepo.findOne({
+      where: { id: dto.warehouseId },
+    });
+    if (!warehouse)
+      throw new BadRequestException(`warehouseId ${dto.warehouseId} not found`);
 
     // Obtener ventas de zapatillas en el rango de fechas
     const qb = this.saleDetailRepo
@@ -669,13 +1032,22 @@ export class ReportsService {
       .where('s.sale_date >= :start', { start })
       .andWhere('s.sale_date < :endExclusive', { endExclusive })
       .andWhere('c.name = :category', { category: 'Zapatillas' })
-      .andWhere('s.warehouse_id = :warehouseId', { warehouseId: dto.warehouseId });  // Filtrar por warehouseId
-
+      .andWhere('s.warehouse_id = :warehouseId', {
+        warehouseId: dto.warehouseId,
+      }); // Filtrar por warehouseId
 
     const salesDetails = await qb.getMany();
 
     // Calcular los pares vendidos por vendedor
-    const sellerCommissions: Map<number, { seller_id: number; seller_name: string; pairs_sold: number; commission: number }> = new Map();
+    const sellerCommissions: Map<
+      number,
+      {
+        seller_id: number;
+        seller_name: string;
+        pairs_sold: number;
+        commission: number;
+      }
+    > = new Map();
 
     for (const detail of salesDetails) {
       const sellerId = detail.sale.user_id;
@@ -706,7 +1078,6 @@ export class ReportsService {
   }
 
   async getDailyCashClosure(date: string, warehouseId: number) {
-
     const start = new Date(date + 'T00:00:00');
     const end = new Date(date + 'T23:59:59');
 
@@ -733,11 +1104,9 @@ export class ReportsService {
     let returns = 0;
 
     for (const m of movements) {
-
       const amount = Number(m.amount);
 
       if (m.type === 'SALE' || m.type === 'CREDIT_PAYMENT') {
-
         if (m.payment_method === 'efectivo') {
           salesCash += amount;
         }
@@ -749,7 +1118,6 @@ export class ReportsService {
         if (m.payment_method === 'tarjeta') {
           salesCard += amount;
         }
-
       }
 
       if (m.type === 'INCOME') {
@@ -763,15 +1131,10 @@ export class ReportsService {
       if (m.type === 'RETURN') {
         returns += Math.abs(amount);
       }
-
     }
 
     const expectedCash =
-      Number(session.opening_cash) +
-      salesCash +
-      income -
-      expense -
-      returns;
+      Number(session.opening_cash) + salesCash + income - expense - returns;
 
     return {
       date,
@@ -907,7 +1270,6 @@ export class ReportsService {
     };
   }
   async getSellerSalesDetailReport(dto: SalesReportQueryDto) {
-
     const { start, endExclusive } = this.buildRange(dto);
 
     const warehouse = await this.warehouseRepo.findOne({
@@ -927,7 +1289,9 @@ export class ReportsService {
       .leftJoinAndSelect('d.productSize', 'ps')
       .where('s.sale_date >= :start', { start })
       .andWhere('s.sale_date < :endExclusive', { endExclusive })
-      .andWhere('s.warehouse_id = :warehouseId', { warehouseId: dto.warehouseId });
+      .andWhere('s.warehouse_id = :warehouseId', {
+        warehouseId: dto.warehouseId,
+      });
 
     if (dto.userId) {
       qb.andWhere('s.user_id = :userId', { userId: dto.userId });
@@ -935,119 +1299,7 @@ export class ReportsService {
 
     const details = await qb.getMany();
 
-    const sellers = new Map<
-      number,
-      {
-        seller_id: number;
-        seller_name: string;
-        total_pairs: number;
-        total_commission: number;
-        categories: Map<
-          string,
-          {
-            category: string;
-            pairs: number;
-            amount: number;
-            sales: any[];
-          }
-        >;
-      }
-    >();
-
-    for (const d of details) {
-
-      const sellerId = d.sale.user_id;
-      const sellerName = d.sale.user?.full_name ?? 'Unknown';
-
-      const categoryName = d.product?.category?.name ?? 'Sin categoria';
-
-      const quantity = Number(d.quantity);
-      const unitPrice = Number(d.unit_price);
-
-      const lineTotal = quantity * unitPrice;
-
-      /**
-       * VALIDACIÓN 2x1
-       * Si el precio unitario es la mitad aproximada
-       * del precio normal, asumimos promoción
-       */
-
-      let validPairs = quantity;
-
-      if (quantity === 2) {
-
-        const approxPrice = unitPrice * quantity;
-
-        if (approxPrice === 140 || approxPrice === 150) {
-          validPairs = 1;
-        }
-
-      }
-
-      const commissionPerPair = 1;
-
-      if (!sellers.has(sellerId)) {
-        sellers.set(sellerId, {
-          seller_id: sellerId,
-          seller_name: sellerName,
-          total_pairs: 0,
-          total_commission: 0,
-          categories: new Map(),
-        });
-      }
-
-      const seller = sellers.get(sellerId)!;
-
-      seller.total_pairs += validPairs;
-      seller.total_commission += validPairs * commissionPerPair;
-
-      if (!seller.categories.has(categoryName)) {
-        seller.categories.set(categoryName, {
-          category: categoryName,
-          pairs: 0,
-          amount: 0,
-          sales: [],
-        });
-      }
-
-      const category = seller.categories.get(categoryName)!;
-
-      category.pairs += validPairs;
-      category.amount += lineTotal;
-
-      category.sales.push({
-        sale_id: d.sale.id,
-        sale_code: d.sale.sale_code,
-        sale_date: d.sale.sale_date,
-
-        product_id: d.product_id,
-        article_code: d.product?.article_code,
-        article_description: d.product?.article_description,
-
-        size: d.productSize?.size ?? null,
-
-        quantity,
-        unit_price: unitPrice,
-
-        total: lineTotal,
-
-        counted_pairs: validPairs,
-      });
-
-    }
-
-    const result = Array.from(sellers.values()).map((seller) => {
-
-      const categories = Array.from(seller.categories.values());
-
-      return {
-        seller_id: seller.seller_id,
-        seller_name: seller.seller_name,
-        total_pairs: seller.total_pairs,
-        total_commission: seller.total_commission,
-        categories,
-      };
-    });
+    const summary = buildSellerCommissionSummary(details);
 
     return {
       meta: {
@@ -1055,12 +1307,14 @@ export class ReportsService {
         warehouse_name: warehouse.warehouse_name,
         start,
         end: endExclusive,
-        sellers: result.length,
+        sellers: summary.sellers.length,
+        commission_per_unit: COMMISSION_PER_UNIT,
       },
-      sellers: result,
+      totals: summary.totals,
+      categories: summary.categories,
+      sellers: summary.sellers,
     };
   }
-
 
   async getSneakersGoalProgress(dto: SalesReportQueryDto) {
     const { start, endExclusive } = this.buildRange(dto);
@@ -1159,238 +1413,240 @@ export class ReportsService {
     };
   }
 
+  private buildCurrentWebSaleMonthRange() {
+    const now = new Date();
 
- private buildCurrentWebSaleMonthRange() {
-  const now = new Date();
+    const selectedYear = now.getFullYear();
+    const selectedMonth = now.getMonth() + 1;
 
-  const selectedYear = now.getFullYear();
-  const selectedMonth = now.getMonth() + 1;
+    const startDate = new Date(selectedYear, selectedMonth - 1, 1);
+    const endDate = new Date(selectedYear, selectedMonth, 1);
 
-  const startDate = new Date(selectedYear, selectedMonth - 1, 1);
-  const endDate = new Date(selectedYear, selectedMonth, 1);
+    const formatDate = (date: Date) => {
+      const yyyy = date.getFullYear();
+      const mm = String(date.getMonth() + 1).padStart(2, '0');
+      const dd = String(date.getDate()).padStart(2, '0');
 
-  const formatDate = (date: Date) => {
-    const yyyy = date.getFullYear();
-    const mm = String(date.getMonth() + 1).padStart(2, '0');
-    const dd = String(date.getDate()).padStart(2, '0');
+      return `${yyyy}-${mm}-${dd} 00:00:00`;
+    };
 
-    return `${yyyy}-${mm}-${dd} 00:00:00`;
-  };
-
-  return {
-    year: selectedYear,
-    month: selectedMonth,
-    start: formatDate(startDate),
-    endExclusive: formatDate(endDate),
-  };
-}
-
-async getMonthlyWebSalesTotal(user: any) {
-  const {
-    year: selectedYear,
-    month: selectedMonth,
-    start,
-    endExclusive,
-  } = this.buildCurrentWebSaleMonthRange();
-
-  const roleName =
-    user?.role?.name_role ||
-    user?.role;
-
-  const loggedUserId =
-    user?.userId ||
-    user?.id ||
-    user?.sub;
-
-  if (roleName !== 'Vendedor Web') {
-    throw new UnauthorizedException(
-      'Solo los usuarios con rol Vendedor Web pueden consultar su meta mensual'
-    );
+    return {
+      year: selectedYear,
+      month: selectedMonth,
+      start: formatDate(startDate),
+      endExclusive: formatDate(endDate),
+    };
   }
 
-  const webSaleQuery = this.webSaleRepository
-    .createQueryBuilder('webSale')
-    .where('webSale.created_at >= :start', { start })
-    .andWhere('webSale.created_at < :endExclusive', { endExclusive })
-    .andWhere('webSale.user_id = :loggedUserId', {
-      loggedUserId,
-    });
+  async getMonthlyWebSalesTotal(user: any) {
+    const {
+      year: selectedYear,
+      month: selectedMonth,
+      start,
+      endExclusive,
+    } = this.buildCurrentWebSaleMonthRange();
 
-  const webSaleRaw = await webSaleQuery
-    .select('COUNT(webSale.id)', 'total_orders')
+    const roleName = user?.role?.name_role || user?.role;
 
-    .addSelect(
-      `COALESCE(SUM(CASE 
+    const loggedUserId = user?.userId || user?.id || user?.sub;
+
+    if (roleName !== 'Vendedor Web') {
+      throw new UnauthorizedException(
+        'Solo los usuarios con rol Vendedor Web pueden consultar su meta mensual',
+      );
+    }
+
+    const webSaleQuery = this.webSaleRepository
+      .createQueryBuilder('webSale')
+      .where('webSale.created_at >= :start', { start })
+      .andWhere('webSale.created_at < :endExclusive', { endExclusive })
+      .andWhere('webSale.user_id = :loggedUserId', {
+        loggedUserId,
+      });
+
+    const webSaleRaw = await webSaleQuery
+      .select('COUNT(webSale.id)', 'total_orders')
+
+      .addSelect(
+        `COALESCE(SUM(CASE
         WHEN webSale.status != :canceled 
         THEN webSale.total_amount 
         ELSE 0 
       END), 0)`,
-      'total_amount'
-    )
+        'total_amount',
+      )
 
-    .addSelect(
-      `COALESCE(SUM(CASE 
+      .addSelect(
+        `COALESCE(SUM(CASE
         WHEN webSale.status = :delivered 
         THEN webSale.total_amount 
         ELSE 0 
       END), 0)`,
-      'delivered_amount'
-    )
+        'delivered_amount',
+      )
 
-    .addSelect(
-      `COUNT(CASE WHEN webSale.status = :pending THEN 1 END)`,
-      'pending_orders'
-    )
+      .addSelect(
+        `COUNT(CASE WHEN webSale.status = :pending THEN 1 END)`,
+        'pending_orders',
+      )
 
-    .addSelect(
-      `COUNT(CASE WHEN webSale.status = :approved THEN 1 END)`,
-      'approved_orders'
-    )
+      .addSelect(
+        `COUNT(CASE WHEN webSale.status = :approved THEN 1 END)`,
+        'approved_orders',
+      )
 
-    .addSelect(
-      `COUNT(CASE WHEN webSale.status = :dispatched THEN 1 END)`,
-      'dispatched_orders'
-    )
+      .addSelect(
+        `COUNT(CASE WHEN webSale.status = :dispatched THEN 1 END)`,
+        'dispatched_orders',
+      )
 
-    .addSelect(
-      `COUNT(CASE WHEN webSale.status = :delivered THEN 1 END)`,
-      'delivered_orders'
-    )
+      .addSelect(
+        `COUNT(CASE WHEN webSale.status = :delivered THEN 1 END)`,
+        'delivered_orders',
+      )
 
-    .addSelect(
-      `COUNT(CASE WHEN webSale.status = :canceled THEN 1 END)`,
-      'canceled_orders'
-    )
+      .addSelect(
+        `COUNT(CASE WHEN webSale.status = :canceled THEN 1 END)`,
+        'canceled_orders',
+      )
 
-    .setParameters({
-      pending: WebSaleStatus.PENDING,
-      approved: WebSaleStatus.APPROVED,
-      dispatched: WebSaleStatus.DISPATCHED,
-      delivered: WebSaleStatus.DELIVERED,
-      canceled: WebSaleStatus.CANCELED,
-    })
-    .getRawOne();
+      .setParameters({
+        pending: WebSaleStatus.PENDING,
+        approved: WebSaleStatus.APPROVED,
+        dispatched: WebSaleStatus.DISPATCHED,
+        delivered: WebSaleStatus.DELIVERED,
+        canceled: WebSaleStatus.CANCELED,
+      })
+      .getRawOne();
 
-  const webDetailQuery = this.webSaleDetailRepository
-    .createQueryBuilder('webDetail')
-    .innerJoin('webDetail.sale', 'webSale')
-    .where('webSale.created_at >= :start', { start })
-    .andWhere('webSale.created_at < :endExclusive', { endExclusive })
-    .andWhere('webSale.user_id = :loggedUserId', {
-      loggedUserId,
-    });
+    const webDetailQuery = this.webSaleDetailRepository
+      .createQueryBuilder('webDetail')
+      .innerJoin('webDetail.sale', 'webSale')
+      .where('webSale.created_at >= :start', { start })
+      .andWhere('webSale.created_at < :endExclusive', { endExclusive })
+      .andWhere('webSale.user_id = :loggedUserId', {
+        loggedUserId,
+      });
 
-  const webDetailRaw = await webDetailQuery
-    .select(
-      `COALESCE(SUM(CASE 
+    const webDetailRaw = await webDetailQuery
+      .select(
+        `COALESCE(SUM(CASE
         WHEN webSale.status != :canceled 
         THEN webDetail.quantity 
         ELSE 0 
       END), 0)`,
-      'total_pairs_registered'
-    )
+        'total_pairs_registered',
+      )
 
-    .addSelect(
-      `COALESCE(SUM(CASE 
+      .addSelect(
+        `COALESCE(SUM(CASE
         WHEN webDetail.detail_status = :vendido 
         THEN webDetail.quantity 
         ELSE 0 
       END), 0)`,
-      'total_pairs_sold'
-    )
+        'total_pairs_sold',
+      )
 
-    .addSelect(
-      `COALESCE(SUM(CASE 
+      .addSelect(
+        `COALESCE(SUM(CASE
         WHEN webDetail.detail_status = :pendiente 
         AND webSale.status != :canceled
         THEN webDetail.quantity 
         ELSE 0 
       END), 0)`,
-      'total_pairs_pending'
-    )
+        'total_pairs_pending',
+      )
 
-    .addSelect(
-      `COALESCE(SUM(CASE 
+      .addSelect(
+        `COALESCE(SUM(CASE
         WHEN webDetail.detail_status = :devuelto 
         OR webSale.status = :canceled
         THEN webDetail.quantity 
         ELSE 0 
       END), 0)`,
-      'total_pairs_returned'
-    )
+        'total_pairs_returned',
+      )
 
-    .addSelect(
-      `COALESCE(SUM(CASE 
+      .addSelect(
+        `COALESCE(SUM(CASE
         WHEN webDetail.detail_status = :vendido 
         THEN COALESCE(webDetail.final_amount, webDetail.subtotal) 
         ELSE 0 
       END), 0)`,
-      'sold_amount'
-    )
+        'sold_amount',
+      )
 
-    .addSelect(
-      `COALESCE(SUM(CASE 
+      .addSelect(
+        `COALESCE(SUM(CASE
         WHEN webDetail.detail_status = :pendiente 
         AND webSale.status != :canceled
         THEN webDetail.subtotal 
         ELSE 0 
       END), 0)`,
-      'pending_amount'
-    )
+        'pending_amount',
+      )
 
-    .addSelect(
-      `COALESCE(SUM(CASE 
+      .addSelect(
+        `COALESCE(SUM(CASE
         WHEN webDetail.detail_status = :devuelto 
         OR webSale.status = :canceled
         THEN webDetail.subtotal 
         ELSE 0 
       END), 0)`,
-      'returned_amount'
-    )
+        'returned_amount',
+      )
 
-    .setParameters({
-      pendiente: DetailStatus.PENDIENTE,
-      vendido: DetailStatus.VENDIDO,
-      devuelto: DetailStatus.DEVUELTO,
-      canceled: WebSaleStatus.CANCELED,
-    })
-    .getRawOne();
+      .setParameters({
+        pendiente: DetailStatus.PENDIENTE,
+        vendido: DetailStatus.VENDIDO,
+        devuelto: DetailStatus.DEVUELTO,
+        canceled: WebSaleStatus.CANCELED,
+      })
+      .getRawOne();
 
-  return {
-    year: selectedYear,
-    month: selectedMonth,
+    return {
+      year: selectedYear,
+      month: selectedMonth,
 
-    start,
-    end: endExclusive,
+      start,
+      end: endExclusive,
 
-    role: roleName,
-    seller_id: Number(loggedUserId),
+      role: roleName,
+      seller_id: Number(loggedUserId),
 
-    pedidos: {
-      total: Number(webSaleRaw?.total_orders || 0),
-      pendiente: Number(webSaleRaw?.pending_orders || 0),
-      aprobado: Number(webSaleRaw?.approved_orders || 0),
-      despachado: Number(webSaleRaw?.dispatched_orders || 0),
-      entregado: Number(webSaleRaw?.delivered_orders || 0),
-      cancelado: Number(webSaleRaw?.canceled_orders || 0),
-    },
+      pedidos: {
+        total: Number(webSaleRaw?.total_orders || 0),
+        pendiente: Number(webSaleRaw?.pending_orders || 0),
+        aprobado: Number(webSaleRaw?.approved_orders || 0),
+        despachado: Number(webSaleRaw?.dispatched_orders || 0),
+        entregado: Number(webSaleRaw?.delivered_orders || 0),
+        cancelado: Number(webSaleRaw?.canceled_orders || 0),
+      },
 
-    importes: {
-      total_registrado: Number(Number(webSaleRaw?.total_amount || 0).toFixed(2)),
-      total_entregado: Number(Number(webSaleRaw?.delivered_amount || 0).toFixed(2)),
-      total_vendido_real: Number(Number(webDetailRaw?.sold_amount || 0).toFixed(2)),
-      total_pendiente: Number(Number(webDetailRaw?.pending_amount || 0).toFixed(2)),
-      total_devuelto: Number(Number(webDetailRaw?.returned_amount || 0).toFixed(2)),
-    },
+      importes: {
+        total_registrado: Number(
+          Number(webSaleRaw?.total_amount || 0).toFixed(2),
+        ),
+        total_entregado: Number(
+          Number(webSaleRaw?.delivered_amount || 0).toFixed(2),
+        ),
+        total_vendido_real: Number(
+          Number(webDetailRaw?.sold_amount || 0).toFixed(2),
+        ),
+        total_pendiente: Number(
+          Number(webDetailRaw?.pending_amount || 0).toFixed(2),
+        ),
+        total_devuelto: Number(
+          Number(webDetailRaw?.returned_amount || 0).toFixed(2),
+        ),
+      },
 
-    pares: {
-      registrados: Number(webDetailRaw?.total_pairs_registered || 0),
-      vendidos: Number(webDetailRaw?.total_pairs_sold || 0),
-      pendientes: Number(webDetailRaw?.total_pairs_pending || 0),
-      devueltos: Number(webDetailRaw?.total_pairs_returned || 0),
-    },
-  };
+      pares: {
+        registrados: Number(webDetailRaw?.total_pairs_registered || 0),
+        vendidos: Number(webDetailRaw?.total_pairs_sold || 0),
+        pendientes: Number(webDetailRaw?.total_pairs_pending || 0),
+        devueltos: Number(webDetailRaw?.total_pairs_returned || 0),
+      },
+    };
+  }
 }
-
-}
-
