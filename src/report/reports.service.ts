@@ -20,7 +20,10 @@ import {
   DetailStatus,
   WebSaleDetail,
 } from 'src/database/entities/webDetail.entity';
-import { WebSale, WebSaleStatus } from 'src/database/entities/webSale.entity';
+import {
+  WebSale,
+  WebSaleStatus,
+} from 'src/database/entities/webSale.entity';
 
 type ReportRow = {
   sale_id: number;
@@ -1456,6 +1459,15 @@ export class ReportsService {
       );
     }
 
+    if (!loggedUserId) {
+      throw new UnauthorizedException('No se pudo identificar al vendedor web');
+    }
+
+    const seller = await this.userRepo.findOne({
+      where: { id: Number(loggedUserId) },
+      relations: ['warehouse'],
+    });
+
     const webSaleQuery = this.webSaleRepository
       .createQueryBuilder('webSale')
       .where('webSale.created_at >= :start', { start })
@@ -1522,6 +1534,7 @@ export class ReportsService {
     const webDetailQuery = this.webSaleDetailRepository
       .createQueryBuilder('webDetail')
       .innerJoin('webDetail.sale', 'webSale')
+      .innerJoin('webDetail.product', 'product')
       .where('webSale.created_at >= :start', { start })
       .andWhere('webSale.created_at < :endExclusive', { endExclusive })
       .andWhere('webSale.user_id = :loggedUserId', {
@@ -1540,7 +1553,8 @@ export class ReportsService {
 
       .addSelect(
         `COALESCE(SUM(CASE
-        WHEN webDetail.detail_status = :vendido 
+        WHEN webSale.status = :delivered
+        AND webDetail.detail_status = :vendido
         THEN webDetail.quantity 
         ELSE 0 
       END), 0)`,
@@ -1569,7 +1583,8 @@ export class ReportsService {
 
       .addSelect(
         `COALESCE(SUM(CASE
-        WHEN webDetail.detail_status = :vendido 
+        WHEN webSale.status = :delivered
+        AND webDetail.detail_status = :vendido
         THEN COALESCE(webDetail.final_amount, webDetail.subtotal) 
         ELSE 0 
       END), 0)`,
@@ -1596,11 +1611,84 @@ export class ReportsService {
         'returned_amount',
       )
 
+      .addSelect(
+        `COALESCE(SUM(CASE
+        WHEN webSale.status = :delivered
+        AND webDetail.detail_status = :vendido
+        AND NOT (
+          COALESCE(product.wholesale_price, 0) > 0
+          AND ABS(webDetail.sale_price - product.wholesale_price) <= 0.01
+        )
+        THEN webDetail.quantity
+        ELSE 0
+      END), 0)`,
+        'unit_pairs_sold',
+      )
+
+      .addSelect(
+        `COALESCE(SUM(CASE
+        WHEN webSale.status = :delivered
+        AND webDetail.detail_status = :vendido
+        AND COALESCE(product.wholesale_price, 0) > 0
+        AND ABS(webDetail.sale_price - product.wholesale_price) <= 0.01
+        THEN webDetail.quantity
+        ELSE 0
+      END), 0)`,
+        'wholesale_pairs_sold',
+      )
+
+      .addSelect(
+        `COALESCE(SUM(CASE
+        WHEN webSale.status = :delivered
+        AND webDetail.detail_status = :vendido
+        AND NOT (
+          COALESCE(product.wholesale_price, 0) > 0
+          AND ABS(webDetail.sale_price - product.wholesale_price) <= 0.01
+        )
+        THEN COALESCE(webDetail.final_amount, webDetail.subtotal)
+        ELSE 0
+      END), 0)`,
+        'unit_sold_amount',
+      )
+
+      .addSelect(
+        `COALESCE(SUM(CASE
+        WHEN webSale.status = :delivered
+        AND webDetail.detail_status = :vendido
+        AND COALESCE(product.wholesale_price, 0) > 0
+        AND ABS(webDetail.sale_price - product.wholesale_price) <= 0.01
+        THEN COALESCE(webDetail.final_amount, webDetail.subtotal)
+        ELSE 0
+      END), 0)`,
+        'wholesale_sold_amount',
+      )
+
+      .addSelect(
+        `COUNT(DISTINCT CASE
+        WHEN webSale.status = :delivered
+        AND NOT (
+          COALESCE(product.wholesale_price, 0) > 0
+          AND ABS(webDetail.sale_price - product.wholesale_price) <= 0.01
+        )
+        THEN webSale.id END)`,
+        'unit_orders',
+      )
+
+      .addSelect(
+        `COUNT(DISTINCT CASE
+        WHEN webSale.status = :delivered
+        AND COALESCE(product.wholesale_price, 0) > 0
+        AND ABS(webDetail.sale_price - product.wholesale_price) <= 0.01
+        THEN webSale.id END)`,
+        'wholesale_orders',
+      )
+
       .setParameters({
         pendiente: DetailStatus.PENDIENTE,
         vendido: DetailStatus.VENDIDO,
         devuelto: DetailStatus.DEVUELTO,
         canceled: WebSaleStatus.CANCELED,
+        delivered: WebSaleStatus.DELIVERED,
       })
       .getRawOne();
 
@@ -1614,8 +1702,14 @@ export class ReportsService {
       role: roleName,
       seller_id: Number(loggedUserId),
 
+      meta_mensual: {
+        monto_objetivo: Number(seller?.warehouse?.monto || 0),
+        pares_objetivo: Number(seller?.warehouse?.cantidad_pares || 0),
+      },
+
       pedidos: {
-        total: Number(webSaleRaw?.total_orders || 0),
+        total: Number(webSaleRaw?.delivered_orders || 0),
+        registrados: Number(webSaleRaw?.total_orders || 0),
         pendiente: Number(webSaleRaw?.pending_orders || 0),
         aprobado: Number(webSaleRaw?.approved_orders || 0),
         despachado: Number(webSaleRaw?.dispatched_orders || 0),
@@ -1631,7 +1725,7 @@ export class ReportsService {
           Number(webSaleRaw?.delivered_amount || 0).toFixed(2),
         ),
         total_vendido_real: Number(
-          Number(webDetailRaw?.sold_amount || 0).toFixed(2),
+          Number(webSaleRaw?.delivered_amount || 0).toFixed(2),
         ),
         total_pendiente: Number(
           Number(webDetailRaw?.pending_amount || 0).toFixed(2),
@@ -1646,6 +1740,23 @@ export class ReportsService {
         vendidos: Number(webDetailRaw?.total_pairs_sold || 0),
         pendientes: Number(webDetailRaw?.total_pairs_pending || 0),
         devueltos: Number(webDetailRaw?.total_pairs_returned || 0),
+      },
+
+      canales: {
+        unidad: {
+          pedidos: Number(webDetailRaw?.unit_orders || 0),
+          pares_vendidos: Number(webDetailRaw?.unit_pairs_sold || 0),
+          monto_vendido: Number(
+            Number(webDetailRaw?.unit_sold_amount || 0).toFixed(2),
+          ),
+        },
+        mayor: {
+          pedidos: Number(webDetailRaw?.wholesale_orders || 0),
+          pares_vendidos: Number(webDetailRaw?.wholesale_pairs_sold || 0),
+          monto_vendido: Number(
+            Number(webDetailRaw?.wholesale_sold_amount || 0).toFixed(2),
+          ),
+        },
       },
     };
   }

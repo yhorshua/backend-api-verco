@@ -4,6 +4,7 @@ import {
   IsNotEmpty,
   IsNumber,
   IsOptional,
+  IsEnum,
   IsString,
   ValidateNested,
 } from 'class-validator';
@@ -12,7 +13,16 @@ import { Type } from 'class-transformer';
 
 import { CreateWebSaleDetailDto } from './createWebSaleDetailDto';
 
+export enum WebSaleTypeDto {
+  UNIT = 'UNIDAD',
+  WHOLESALE = 'MAYOR',
+}
+
 export class CreateWebSaleDto {
+
+  @IsOptional()
+  @IsEnum(WebSaleTypeDto)
+  sale_type?: WebSaleTypeDto;
 
   @IsString()
   @IsNotEmpty()

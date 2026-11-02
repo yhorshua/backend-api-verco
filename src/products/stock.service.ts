@@ -767,6 +767,7 @@ export class StockService {
       type_origin: product.type_origin,
       manufacturing_cost: Number(product.manufacturing_cost),
       unit_price: Number(product.unit_price),
+      wholesale_price: Number(product.wholesale_price ?? 0),
       brand_name: product.brand_name,
       model_code: product.model_code,
       category: product.category,
