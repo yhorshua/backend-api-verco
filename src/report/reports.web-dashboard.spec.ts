@@ -18,8 +18,8 @@ function queryBuilder(raw: Record<string, unknown>) {
   return builder;
 }
 
-describe('ReportsService web seller dashboard', () => {
-  it('devuelve meta y separa ventas por unidad y por mayor', async () => {
+describe('ReportsService web sales dashboard', () => {
+  it('devuelve la misma vista comercial para Vendedor Web y Jefe Ventas', async () => {
     const salesQuery = queryBuilder({
       total_orders: 6,
       pending_orders: 1,
@@ -81,6 +81,15 @@ describe('ReportsService web seller dashboard', () => {
     expect(result.pares.vendidos).toBe(12);
     expect(result.importes.total_vendido_real).toBe(900);
     expect(result.pedidos.total).toBe(3);
+
+    const managerResult = await service.getMonthlyWebSalesTotal({
+      userId: 7,
+      role: 'Jefe Ventas',
+    });
+
+    expect(managerResult.meta_mensual).toEqual(result.meta_mensual);
+    expect(managerResult.canales).toEqual(result.canales);
+    expect(managerResult.pedidos.total).toBe(3);
 
     const detailSelections = detailsQuery.addSelect.mock.calls
       .map((call: unknown[]) => String(call[0]))

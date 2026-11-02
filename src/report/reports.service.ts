@@ -1453,14 +1453,16 @@ export class ReportsService {
 
     const loggedUserId = user?.userId || user?.id || user?.sub;
 
-    if (roleName !== 'Vendedor Web') {
+    const allowedRoles = ['Vendedor Web', 'Jefe Ventas'];
+
+    if (!allowedRoles.includes(roleName)) {
       throw new UnauthorizedException(
-        'Solo los usuarios con rol Vendedor Web pueden consultar su meta mensual',
+        'Solo Vendedor Web y Jefe Ventas pueden consultar este dashboard comercial',
       );
     }
 
     if (!loggedUserId) {
-      throw new UnauthorizedException('No se pudo identificar al vendedor web');
+      throw new UnauthorizedException('No se pudo identificar al usuario de ventas');
     }
 
     const seller = await this.userRepo.findOne({
