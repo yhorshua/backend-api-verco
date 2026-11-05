@@ -95,7 +95,7 @@ export class InventoryAdjustmentsService {
           stock_id: Number(row.stock_id),
           warehouse_id: Number(row.warehouse_id),
           product_id: Number(row.product_id),
-          product_size_id: Number(row.product_size_id),
+          product_size_id: row.product_size_id == null ? null : Number(row.product_size_id),
           category_id: row.category_id == null ? null : Number(row.category_id),
           stock_current: stockCurrent,
           stock_reserved: stockReserved,
@@ -486,3 +486,4 @@ export class InventoryAdjustmentsService {
     return labels[reason];
   }
 }
+
