@@ -48,6 +48,7 @@ async function bootstrap() {
       'https://verco.online',
       'https://www.verco.online',
       'https://verco-web-ecommerce-production.up.railway.app',
+      'https://soomin.online',
       ...configuredOrigins,
     ],
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
