@@ -7,6 +7,7 @@ import {
   Patch,
   Post,
   Query,
+  Req,
   UseGuards,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -70,11 +71,13 @@ export class StorefrontAdminController {
   updateSoominOrderStatus(
     @Param('orderId') orderId: string,
     @Body() body: UpdateEcommerceOrderStatusDto,
+    @Req() request: { user: { userId: number } },
   ) {
     return this.storefrontService.updateOrderStatus(
       Number(orderId),
       body,
       'soomin-store',
+      request.user.userId,
     );
   }
 
@@ -186,10 +189,13 @@ export class StorefrontAdminController {
   updateOrderStatus(
     @Param('orderId') orderId: string,
     @Body() body: UpdateEcommerceOrderStatusDto,
+    @Req() request: { user: { userId: number } },
   ) {
     return this.storefrontService.updateOrderStatus(
       Number(orderId),
       body,
+      undefined,
+      request.user.userId,
     );
   }
 }

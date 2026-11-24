@@ -100,6 +100,15 @@ export class EcommerceOrder {
   @Column({ type: 'datetime', nullable: true })
   stock_released_at?: Date | null;
 
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  cancellation_reason?: string | null;
+
+  @Column({ type: 'int', nullable: true })
+  canceled_by?: number | null;
+
+  @Column({ type: 'datetime', precision: 3, nullable: true })
+  canceled_at_utc?: Date | null;
+
   @CreateDateColumn({ type: 'datetime' })
   created_at!: Date;
 

@@ -1086,7 +1086,7 @@ export class StorefrontService {
     return { data: orders, total, page: safePage, limit: safeLimit };
   }
 
-  async updateOrderStatus(orderId: number, dto: UpdateEcommerceOrderStatusDto, storefrontSlug?: string) {
+  async updateOrderStatus(orderId: number, dto: UpdateEcommerceOrderStatusDto, storefrontSlug?: string, actorUserId?: number) {
     const nextStatus=dto.status;
     const allowed: Record<EcommerceOrderStatus, EcommerceOrderStatus[]> = {
       [EcommerceOrderStatus.PENDING]: [
@@ -1125,6 +1125,10 @@ export class StorefrontService {
         );
       }
       if (nextStatus === EcommerceOrderStatus.CANCELED) {
+        const cancellationReason = dto.cancellation_reason?.trim();
+        if (!cancellationReason || cancellationReason.length < 5) {
+          throw new BadRequestException('Ingresa un motivo de rechazo de al menos 5 caracteres');
+        }
         if (order.stock_released_at)
           throw new ConflictException(
             'El stock de este pedido ya fue devuelto',
@@ -1147,6 +1151,9 @@ export class StorefrontService {
           );
         }
         order.stock_released_at = new Date();
+        order.cancellation_reason = cancellationReason;
+        order.canceled_by = actorUserId ?? null;
+        order.canceled_at_utc = new Date();
         await manager.increment(
           Storefront,
           { id: order.storefront_id },
