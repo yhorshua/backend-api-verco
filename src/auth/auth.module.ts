@@ -6,6 +6,7 @@ import { PassportModule } from '@nestjs/passport';
 import { JwtStrategy } from './jwt.strategy';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { AuthController } from './auth.controller';
+import { LoginRateLimitGuard } from './login-rate-limit.guard';
 
 @Module({
   imports: [
@@ -14,13 +15,19 @@ import { AuthController } from './auth.controller';
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        secret: configService.get('JWT_SECRET'),
-        signOptions: { expiresIn: configService.get('JWT_EXPIRES_IN') },
-      }),
+      useFactory: (configService: ConfigService) => {
+        const secret = configService.get<string>('JWT_SECRET');
+        if (!secret || secret.length < 32) {
+          throw new Error('JWT_SECRET debe existir y contener al menos 32 caracteres');
+        }
+        return {
+          secret,
+          signOptions: { expiresIn: configService.get('JWT_EXPIRES_IN') || '8h' },
+        };
+      },
     }),
   ],
-  providers: [AuthService, JwtStrategy],
+  providers: [AuthService, JwtStrategy, LoginRateLimitGuard],
   controllers: [AuthController], // <-- CONTROLLER incluido
   exports: [AuthService, JwtModule],
 })

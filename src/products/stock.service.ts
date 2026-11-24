@@ -21,7 +21,7 @@ import { CashMovement } from '../database/entities/cash-movement.entity';
 import { CreateSaleDto, PaymentMethod } from './dto/create-sale.dto';
 import { ProductSize } from 'src/database/entities/product-size.entity';
 import { Product } from 'src/database/entities/product.entity';
-import moment, { now } from 'moment-timezone';
+import moment from 'moment-timezone';
 import { UpdateProductDto } from './dto/create-product.dto';
 import { StockMovementReportDto } from './dto/stockMovementReport.dto';
 
@@ -74,7 +74,6 @@ export class StockService {
 
     return this.dataSource.transaction(async (manager) => {
 
-      const fechaLima = moment().tz('America/Lima').format('YYYY-MM-DD HH:mm:ss');
       // 0) Validar warehouse tipo "tienda"
       await this.assertWarehouseIsStore(manager, dto.warehouse_id);
 
@@ -174,6 +173,26 @@ export class StockService {
       unit_of_measure: item.unit_of_measure ?? 'PAR',
     }));
 
+    const requestedKeys = new Set<string>();
+    for (const item of normalizedItems) {
+      if (!Number.isInteger(item.product_id) || item.product_id <= 0) {
+        throw new BadRequestException('El producto de la venta no es válido');
+      }
+      if (!Number.isFinite(item.quantity) || item.quantity <= 0) {
+        throw new BadRequestException(
+          `La cantidad debe ser mayor que cero para product_id=${item.product_id}`,
+        );
+      }
+
+      const key = `${item.product_id}-${item.product_size_id ?? 'null'}`;
+      if (requestedKeys.has(key)) {
+        throw new BadRequestException(
+          `El producto product_id=${item.product_id}, size=${item.product_size_id ?? 'N/A'} está duplicado en la venta`,
+        );
+      }
+      requestedKeys.add(key);
+    }
+
     const stocks = await manager
       .getRepository(Stock)
       .createQueryBuilder('stock')
@@ -197,6 +216,7 @@ export class StockService {
           });
         }),
       )
+      .orderBy('stock.id', 'ASC')
       .setLock('pessimistic_write')
       .getMany();
 
@@ -443,9 +463,36 @@ export class StockService {
       stocksToUpdate.push(row.stock);
     }
 
-    const savedMovements = await manager.save(StockMovement, movementsToSave);
+    // insert() genera un único INSERT multi-fila. save(array) ejecutaba trabajo
+    // adicional por cada talla y era el principal costo del registro de venta.
+    await manager.insert(StockMovement, movementsToSave);
 
-    const detailsToSave = validated.map((row, index) =>
+    const persistedMovements: Array<{
+      id: number;
+      product_id: number;
+      product_size_id: number | null;
+    }> = await manager.query(
+      `SELECT id, product_id, product_size_id
+       FROM StockMovements
+       WHERE reference_type = 'VENTA' AND reference_id = ?
+       ORDER BY id ASC`,
+      [sale.id],
+    );
+
+    const movementByItem = new Map(
+      persistedMovements.map((movement) => [
+        `${Number(movement.product_id)}-${movement.product_size_id == null ? 'null' : Number(movement.product_size_id)}`,
+        Number(movement.id),
+      ]),
+    );
+
+    if (movementByItem.size !== validated.length) {
+      throw new BadRequestException(
+        'No se pudieron relacionar todos los movimientos de stock de la venta',
+      );
+    }
+
+    const detailsToSave = validated.map((row) =>
       manager.create(SaleDetail, {
         sale_id: sale.id,
         product_id: row.item.product_id,
@@ -453,15 +500,37 @@ export class StockService {
         quantity: Number(row.item.quantity),
         unit_price: Number(row.unit_price),
         factory_price_at_sale: Number(row.factory_price_at_sale),
-        stock_movement_id: savedMovements[index].id,
+        stock_movement_id: movementByItem.get(
+          `${row.item.product_id}-${row.item.product_size_id ?? 'null'}`,
+        )!,
       }),
     );
 
-    await manager.save(SaleDetail, detailsToSave);
+    await manager.insert(SaleDetail, detailsToSave);
 
-    await manager.save(Stock, stocksToUpdate);
+    const updateCases = stocksToUpdate.map(() => 'WHEN ? THEN ?').join(' ');
+    const stockIds = stocksToUpdate.map((stock) => Number(stock.id));
+    const updateParams = stocksToUpdate.flatMap((stock) => [
+      Number(stock.id),
+      Number(stock.quantity),
+    ]);
 
-    return savedMovements;
+    await manager.query(
+      `UPDATE Stock
+       SET quantity = CASE id ${updateCases} ELSE quantity END,
+           version = version + 1,
+           updated_at_utc = UTC_TIMESTAMP(3)
+       WHERE warehouse_id = ? AND id IN (${stockIds.map(() => '?').join(', ')})`,
+      [...updateParams, dto.warehouse_id, ...stockIds],
+    );
+
+    return movementsToSave.map((movement) => {
+      const movementId = movementByItem.get(
+        `${movement.product_id}-${movement.product_size_id ?? 'null'}`,
+      )!;
+      movement.id = movementId;
+      return movement;
+    });
   }
 
   /**
@@ -645,6 +714,8 @@ export class StockService {
     sale: Sale,
     payments: SalePayment[],
   ) {
+    const movements: CashMovement[] = [];
+
     for (const pay of payments) {
       // obsequio (amount 0) no entra a caja
       const amount = Number(pay.amount);
@@ -667,7 +738,11 @@ export class StockService {
         created_at: new Date(),
       });
 
-      await manager.save(CashMovement, cm);
+      movements.push(cm);
+    }
+
+    if (movements.length > 0) {
+      await manager.insert(CashMovement, movements);
     }
   }
 

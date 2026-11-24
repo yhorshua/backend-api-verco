@@ -1,4 +1,11 @@
-import { Entity, PrimaryGeneratedColumn, Column, OneToMany, ManyToOne, JoinColumn } from 'typeorm';
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  OneToMany,
+  ManyToOne,
+  JoinColumn,
+} from 'typeorm';
 import { ProductSize } from './product-size.entity';
 import { Series } from './series.entity';
 import { Stock } from './stock.entity';
@@ -34,6 +41,11 @@ export class Product {
   @Column({ nullable: true })
   model_code!: string;
 
+  @Column({ type: 'varchar', length: 50, nullable: true })
+  ecommerce_group_code?: string;
+
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  color_code?: string;
 
   @ManyToOne(() => Category, (category) => category.products)
   @JoinColumn({ name: 'category_id' }) // Especifica explícitamente el nombre de la columna de la clave foránea
@@ -96,6 +108,9 @@ export class Product {
 
   @Column('decimal', { precision: 10, scale: 2, nullable: true })
   original_price?: number;
+
+  @Column('decimal', { precision: 10, scale: 2, default: 0 })
+  shipping_cost!: number;
 
   @Column({ type: 'int', default: 0 })
   discount_percent!: number;

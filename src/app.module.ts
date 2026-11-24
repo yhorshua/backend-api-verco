@@ -79,6 +79,12 @@ import { Quotation } from './database/entities/quotation.entity';
 import { QuotationDetail } from './database/entities/quotation-detail.entity';
 import { QuotationHistory } from './database/entities/quotation-history.entity';
 import { QuotationsModule } from './quotations/quotations.module';
+import { Storefront } from './database/entities/storefront.entity';
+import { StorefrontModule } from './storefront/storefront.module';
+import { EcommerceOrder } from './database/entities/ecommerce-order.entity';
+import { EcommerceOrderDetail } from './database/entities/ecommerce-order-detail.entity';
+import { EcommerceClaim } from './database/entities/ecommerce-claim.entity';
+import { HealthController } from './health.controller';
 
 @Module({
   imports: [
@@ -89,17 +95,23 @@ import { QuotationsModule } from './quotations/quotations.module';
     EventEmitterModule.forRoot(),
 
     TypeOrmModule.forRoot({
-      type: 'mysql',                                      // 👈 CAMBIADO
-      host: process.env.DB_HOST,                         // 👈 Host de Hostinger
-      port: Number(process.env.DB_PORT) || 3306,         // 👈 Puerto MySQL
+      type: 'mysql', // 👈 CAMBIADO
+      host: process.env.DB_HOST, // 👈 Host de Hostinger
+      port: Number(process.env.DB_PORT) || 3306, // 👈 Puerto MySQL
       username: process.env.DB_USER,
       password: process.env.DB_PASS,
       database: process.env.DB_NAME,
       timezone: '-05:00',
-      synchronize: false,                                // true solo en desarrollo
+      synchronize: false, // true solo en desarrollo
       retryAttempts: 10,
       retryDelay: 5000,
-      connectTimeout: 30000,                            
+      connectTimeout: 30000,
+      extra: {
+        connectionLimit: Number(process.env.DB_POOL_SIZE) || 10,
+        queueLimit: 0,
+        enableKeepAlive: true,
+        keepAliveInitialDelay: 0,
+      },
       entities: [
         User,
         Product,
@@ -152,6 +164,10 @@ import { QuotationsModule } from './quotations/quotations.module';
         Quotation,
         QuotationDetail,
         QuotationHistory,
+        Storefront,
+        EcommerceOrder,
+        EcommerceOrderDetail,
+        EcommerceClaim,
       ],
     }),
 
@@ -180,8 +196,9 @@ import { QuotationsModule } from './quotations/quotations.module';
     PendingPaymentsModule,
     InventoryAdjustmentsModule,
     QuotationsModule,
+    StorefrontModule,
   ],
-  controllers: [AppController],
+  controllers: [AppController, HealthController],
   providers: [AppService],
 })
 export class AppModule {}

@@ -3,14 +3,15 @@ import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { UsersService } from '../users/users.service';
 import { isUserActive } from './user-status';
+import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
-    constructor(private readonly usersService: UsersService) {
+    constructor(private readonly usersService: UsersService, configService: ConfigService) {
         super({
             jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
             ignoreExpiration: false,
-            secretOrKey: process.env.JWT_SECRET!, // 👈 el signo "!" indica que no será undefined
+            secretOrKey: configService.getOrThrow<string>('JWT_SECRET'),
         });
 
     }
