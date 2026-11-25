@@ -187,7 +187,9 @@ export class StorefrontService {
        LEFT JOIN ProductImages pi ON pi.product_id = p.id AND pi.status = b'1'
        WHERE p.status = b'1' AND p.is_published = b'1'
          AND p.selling_price > 0
-       ORDER BY p.article_code, pi.is_primary DESC, pi.sort_order, ps.size`,
+       ORDER BY p.article_code, pi.is_primary DESC, pi.sort_order,
+                CASE WHEN ps.size REGEXP '^[0-9]+([.][0-9]+)?$' THEN 0 ELSE 1 END,
+                CAST(ps.size AS DECIMAL(10,2)), ps.size`,
       [store.warehouse_id],
     );
 
