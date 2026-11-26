@@ -57,32 +57,54 @@ export class EcommerceOrder {
 
   @Column({ type: 'varchar', length: 100 })
   department!: string;
-  @Column({type:'varchar',length:6,nullable:true}) department_code!:string|null;
+  @Column({ type: 'varchar', length: 6, nullable: true }) department_code!:
+    | string
+    | null;
 
   @Column({ type: 'varchar', length: 100 })
   province!: string;
-  @Column({type:'varchar',length:6,nullable:true}) province_code!:string|null;
+  @Column({ type: 'varchar', length: 6, nullable: true }) province_code!:
+    | string
+    | null;
 
   @Column({ type: 'varchar', length: 100 })
   district!: string;
-  @Column({type:'varchar',length:6,nullable:true}) district_code!:string|null;
+  @Column({ type: 'varchar', length: 6, nullable: true }) district_code!:
+    | string
+    | null;
 
   @Column({ type: 'varchar', length: 255, nullable: true })
   reference?: string | null;
-  @Column({type:'varchar',length:30,default:'DOMICILIO_LIMA'}) delivery_type!:'DOMICILIO_LIMA'|'AGENCIA_SHALOM';
-  @Column({type:'varchar',length:40,nullable:true}) shalom_agency_id!:string|null;
-  @Column({type:'varchar',length:180,nullable:true}) shalom_agency_name!:string|null;
-  @Column({type:'varchar',length:80,nullable:true}) shipping_code!:string|null;
+  @Column({ type: 'varchar', length: 30, default: 'DOMICILIO_LIMA' })
+  delivery_type!: 'DOMICILIO_LIMA' | 'AGENCIA_SHALOM';
+  @Column({ type: 'varchar', length: 40, nullable: true }) shalom_agency_id!:
+    | string
+    | null;
+  @Column({ type: 'varchar', length: 180, nullable: true })
+  shalom_agency_name!: string | null;
+  @Column({ type: 'varchar', length: 80, nullable: true }) shipping_code!:
+    | string
+    | null;
 
   @Column({ type: 'varchar', length: 30 })
   payment_method!: string;
-  @Column({type:'varchar',length:20,default:'PENDIENTE'}) payment_status!:'PENDIENTE'|'PAGADO';
+  @Column({ type: 'varchar', length: 20, default: 'PENDIENTE' })
+  payment_status!: 'PENDIENTE' | 'PAGADO';
 
   @Column({ type: 'char', length: 3, default: 'PEN' })
   currency!: string;
 
   @Column({ type: 'decimal', precision: 12, scale: 2 })
   total_amount!: string;
+
+  @Column({ type: 'decimal', precision: 12, scale: 2, default: 0 })
+  subtotal_amount!: string;
+
+  @Column({ type: 'decimal', precision: 12, scale: 2, default: 0 })
+  discount_amount!: string;
+
+  @Column({ type: 'int', unsigned: true, default: 0 })
+  bundle_discount_percent!: number;
 
   @Column({ type: 'decimal', precision: 12, scale: 2, default: 0 })
   shipping_amount!: string;

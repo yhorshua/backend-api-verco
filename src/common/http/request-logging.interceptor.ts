@@ -15,11 +15,13 @@ export class RequestLoggingInterceptor implements NestInterceptor {
     if (context.getType() !== 'http') return next.handle();
     const request = context.switchToHttp().getRequest();
     const response = context.switchToHttp().getResponse();
+    const endpoint = request.originalUrl || request.url;
+    if (endpoint === '/health') return next.handle();
     const startedAt = Date.now();
     const base = {
       correlationId: request.correlationId || request.headers?.['x-correlation-id'],
       method: request.method,
-      endpoint: request.originalUrl || request.url,
+      endpoint,
     };
     request.requestLoggingHandled = true;
 

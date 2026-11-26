@@ -47,6 +47,9 @@ export class Product {
   @Column({ type: 'varchar', length: 20, nullable: true })
   color_code?: string;
 
+  @Column({ type: 'int', nullable: true })
+  ecommerce_product_type_id?: number;
+
   @ManyToOne(() => Category, (category) => category.products)
   @JoinColumn({ name: 'category_id' }) // Especifica explícitamente el nombre de la columna de la clave foránea
   category!: Category;

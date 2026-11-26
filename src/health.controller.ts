@@ -6,7 +6,15 @@ export class HealthController {
   constructor(private readonly dataSource: DataSource) {}
 
   @Get()
-  async check() {
+  check() {
+    return {
+      status: 'ok',
+      service: 'backend-api-verco',
+    };
+  }
+
+  @Get('ready')
+  async readiness() {
     try {
       await this.dataSource.query('SELECT 1');
       return {

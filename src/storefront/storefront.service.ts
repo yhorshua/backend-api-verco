@@ -36,6 +36,13 @@ import { StorefrontEmailService } from './storefront-email.service';
 type CatalogRow = {
   product_id: number;
   article_code: string;
+  category_id: number;
+  category_name: string;
+  article_series: string;
+  product_type_id: number | null;
+  product_type_name: string | null;
+  product_type_slug: string | null;
+  garment_position: string | null;
   group_code: string | null;
   color_code: string | null;
   color_name: string | null;
@@ -98,6 +105,13 @@ type CatalogGroup = {
   group_code: string;
   name: string;
   description: string | null;
+  category_id: number;
+  category_name: string;
+  article_series: string;
+  product_type_id: number | null;
+  product_type_name: string | null;
+  product_type_slug: string | null;
+  garment_position: string | null;
   is_new: boolean;
   is_featured: boolean;
   variants: CatalogVariant[];
@@ -117,6 +131,45 @@ export function deriveVariantCodes(articleCode: string): {
 function bitToBoolean(value: number | Buffer | null): boolean {
   if (Buffer.isBuffer(value)) return value.length > 0 && value[0] === 1;
   return Number(value ?? 0) === 1;
+}
+
+const BUNDLE_DISCOUNT_PERCENT = 5;
+const TOP_PRODUCT_WORDS = [
+  'POLO',
+  'BLUSA',
+  'CAMISA',
+  'POLERA',
+  'CHOMPA',
+  'CASACA',
+  'TOP',
+];
+const BOTTOM_PRODUCT_WORDS = ['SHORT', 'JEAN', 'PANTALON', 'FALDA', 'LEGGING'];
+
+function normalizeProductText(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase();
+}
+
+export function bundleProductKind(
+  productName: string,
+): 'TOP' | 'BOTTOM' | 'OTHER' {
+  const normalized = normalizeProductText(productName);
+  if (TOP_PRODUCT_WORDS.some((word) => normalized.includes(word))) return 'TOP';
+  if (BOTTOM_PRODUCT_WORDS.some((word) => normalized.includes(word)))
+    return 'BOTTOM';
+  return 'OTHER';
+}
+
+export function calculateBundleDiscountCents(
+  subtotalCents: number,
+  productNames: string[],
+): number {
+  const kinds = new Set(productNames.map(bundleProductKind));
+  return kinds.has('TOP') && kinds.has('BOTTOM')
+    ? Math.round((subtotalCents * BUNDLE_DISCOUNT_PERCENT) / 100)
+    : 0;
 }
 
 export function moneyToCents(value: string): number {
@@ -162,12 +215,15 @@ export class StorefrontService {
 
   async getCatalog(slug: string) {
     const store = await this.findActiveStorefront(slug);
-    const cacheKey = `storefront:catalog:${store.id}:v${store.cache_version}`;
+    const cacheKey = `storefront:catalog:schema2:${store.id}:v${store.cache_version}`;
     const cached = await this.cache.getJson<unknown>(cacheKey);
     if (cached) return cached;
 
     const rows = await this.dataSource.query<CatalogRow[]>(
       `SELECT p.id AS product_id, p.article_code,
+              c.id AS category_id, c.name AS category_name, p.article_series,
+              ept.id AS product_type_id, ept.name AS product_type_name,
+              ept.slug AS product_type_slug, ept.garment_position,
               p.ecommerce_group_code AS group_code, p.color_code,
               p.color AS color_name,
               COALESCE(NULLIF(p.ecommerce_name, ''), p.article_description) AS name,
@@ -181,6 +237,9 @@ export class StorefrontService {
               pi.is_primary AS image_primary, pi.sort_order AS image_order,
               ps.id AS size_id, ps.size, CAST(s.quantity AS CHAR) AS stock
        FROM Products p
+       INNER JOIN Categories c ON c.id = p.category_id
+       LEFT JOIN EcommerceProductTypes ept ON ept.id = p.ecommerce_product_type_id
+          AND ept.storefront_id = ? AND ept.status = b'1'
        INNER JOIN ProductSize ps ON ps.product_id = p.id
        INNER JOIN Stock s ON s.product_id = p.id
           AND s.product_size_id = ps.id AND s.warehouse_id = ? AND s.quantity > 0
@@ -190,7 +249,7 @@ export class StorefrontService {
        ORDER BY p.article_code, pi.is_primary DESC, pi.sort_order,
                 CASE WHEN ps.size REGEXP '^[0-9]+([.][0-9]+)?$' THEN 0 ELSE 1 END,
                 CAST(ps.size AS DECIMAL(10,2)), ps.size`,
-      [store.warehouse_id],
+      [store.id, store.warehouse_id],
     );
 
     const groups = new Map<string, CatalogGroup>();
@@ -204,6 +263,13 @@ export class StorefrontService {
           group_code: groupCode,
           name: row.name,
           description: row.description,
+          category_id: row.category_id,
+          category_name: row.category_name,
+          article_series: row.article_series,
+          product_type_id: row.product_type_id,
+          product_type_name: row.product_type_name,
+          product_type_slug: row.product_type_slug,
+          garment_position: row.garment_position,
           is_new: bitToBoolean(row.is_new),
           is_featured: bitToBoolean(row.is_featured),
           variants: [],
@@ -255,10 +321,25 @@ export class StorefrontService {
     return response;
   }
 
-  async createOrder(slug: string, dto: CreateEcommerceOrderDto, customerId: number|null = null) {
-    const isLimaProvince=dto.department.trim().toUpperCase()==='LIMA'&&dto.province.trim().toUpperCase()==='LIMA';
-    if(!isLimaProvince&&dto.delivery_type!=='AGENCIA_SHALOM')throw new BadRequestException('Los pedidos fuera de Lima deben enviarse por agencia Shalom');
-    if(dto.delivery_type==='AGENCIA_SHALOM'&&!dto.shalom_agency_name?.trim())throw new BadRequestException('Ingresa el nombre de la agencia Shalom de destino');
+  async createOrder(
+    slug: string,
+    dto: CreateEcommerceOrderDto,
+    customerId: number | null = null,
+  ) {
+    const isLimaProvince =
+      dto.department.trim().toUpperCase() === 'LIMA' &&
+      dto.province.trim().toUpperCase() === 'LIMA';
+    if (!isLimaProvince && dto.delivery_type !== 'AGENCIA_SHALOM')
+      throw new BadRequestException(
+        'Los pedidos fuera de Lima deben enviarse por agencia Shalom',
+      );
+    if (
+      dto.delivery_type === 'AGENCIA_SHALOM' &&
+      !dto.shalom_agency_name?.trim()
+    )
+      throw new BadRequestException(
+        'Ingresa el nombre de la agencia Shalom de destino',
+      );
     const existing = await this.orderRepository.findOne({
       where: { idempotency_key: dto.idempotency_key },
       relations: { details: true, storefront: true },
@@ -343,6 +424,13 @@ export class StorefrontService {
           validated.push({ row, quantity: item.quantity, unitCents });
         }
 
+        const discountCents = calculateBundleDiscountCents(
+          totalCents,
+          validated.map((item) => item.row.product_name),
+        );
+        const bundleDiscountPercent =
+          discountCents > 0 ? BUNDLE_DISCOUNT_PERCENT : 0;
+
         const clean = (value: string | undefined) => value?.trim() || null;
         const orderRepository = manager.getRepository(EcommerceOrder);
         const saved = await orderRepository.save(
@@ -356,19 +444,24 @@ export class StorefrontService {
             customer_phone: dto.customer_phone.trim(),
             customer_address: dto.customer_address.trim(),
             department: dto.department.trim(),
-            department_code:dto.department_code,
+            department_code: dto.department_code,
             province: dto.province.trim(),
-            province_code:dto.province_code,
+            province_code: dto.province_code,
             district: dto.district.trim(),
-            district_code:dto.district_code,
+            district_code: dto.district_code,
             reference: clean(dto.reference),
-            delivery_type:dto.delivery_type,
-            shalom_agency_id:clean(dto.shalom_agency_id),
-            shalom_agency_name:clean(dto.shalom_agency_name),
+            delivery_type: dto.delivery_type,
+            shalom_agency_id: clean(dto.shalom_agency_id),
+            shalom_agency_name: clean(dto.shalom_agency_name),
             payment_method: dto.payment_method,
-            payment_status:'PENDIENTE',
+            payment_status: 'PENDIENTE',
             currency: store.currency,
-            total_amount: centsToMoney(totalCents + shippingCents),
+            subtotal_amount: centsToMoney(totalCents),
+            discount_amount: centsToMoney(discountCents),
+            bundle_discount_percent: bundleDiscountPercent,
+            total_amount: centsToMoney(
+              totalCents - discountCents + shippingCents,
+            ),
             shipping_amount: centsToMoney(shippingCents),
             observations: clean(dto.observations),
             stock_committed_at: new Date(),
@@ -398,7 +491,7 @@ export class StorefrontService {
               product_name_snapshot: item.row.product_name,
               color_snapshot: item.row.color_name,
               size_snapshot: item.row.size,
-              image_url_snapshot:item.row.image_url,
+              image_url_snapshot: item.row.image_url,
             }),
           );
         }
@@ -429,28 +522,81 @@ export class StorefrontService {
     }
   }
 
-  async createClaim(slug:string,dto:CreateEcommerceClaimDto){
-    const amountCents=moneyToCents(dto.amount);
-    const claim=await this.dataSource.transaction(async manager=>{
-      const store=await this.findActiveStorefront(slug,manager);
-      const repository=manager.getRepository(EcommerceClaim);
-      const saved=await repository.save(repository.create({storefront_id:store.id,claim_type:dto.claim_type,consumer_name:dto.consumer_name.trim(),document_type:dto.document_type,document_number:dto.document_number.trim(),consumer_address:dto.consumer_address.trim(),consumer_phone:dto.consumer_phone.trim(),consumer_email:dto.consumer_email.trim().toLowerCase(),is_minor:dto.is_minor,representative_name:dto.is_minor?dto.representative_name?.trim()||null:null,representative_document:dto.is_minor?dto.representative_document?.trim()||null:null,item_type:dto.item_type,item_description:dto.item_description.trim(),amount:centsToMoney(amountCents),order_code:dto.order_code?.trim()||null,detail:dto.detail.trim(),consumer_request:dto.consumer_request.trim(),response_method:dto.response_method}));
-      saved.claim_code=`LR-${new Date().getFullYear()}-${String(saved.id).padStart(6,'0')}`;
+  async createClaim(slug: string, dto: CreateEcommerceClaimDto) {
+    const amountCents = moneyToCents(dto.amount);
+    const claim = await this.dataSource.transaction(async (manager) => {
+      const store = await this.findActiveStorefront(slug, manager);
+      const repository = manager.getRepository(EcommerceClaim);
+      const saved = await repository.save(
+        repository.create({
+          storefront_id: store.id,
+          claim_type: dto.claim_type,
+          consumer_name: dto.consumer_name.trim(),
+          document_type: dto.document_type,
+          document_number: dto.document_number.trim(),
+          consumer_address: dto.consumer_address.trim(),
+          consumer_phone: dto.consumer_phone.trim(),
+          consumer_email: dto.consumer_email.trim().toLowerCase(),
+          is_minor: dto.is_minor,
+          representative_name: dto.is_minor
+            ? dto.representative_name?.trim() || null
+            : null,
+          representative_document: dto.is_minor
+            ? dto.representative_document?.trim() || null
+            : null,
+          item_type: dto.item_type,
+          item_description: dto.item_description.trim(),
+          amount: centsToMoney(amountCents),
+          order_code: dto.order_code?.trim() || null,
+          detail: dto.detail.trim(),
+          consumer_request: dto.consumer_request.trim(),
+          response_method: dto.response_method,
+        }),
+      );
+      saved.claim_code = `LR-${new Date().getFullYear()}-${String(saved.id).padStart(6, '0')}`;
       return repository.save(saved);
     });
-    const emailNotification=await this.email.sendClaimRegistered(claim);
-    return {claim_code:claim.claim_code,status:claim.status,created_at:claim.created_at,response_due_business_days:15,email_notification:emailNotification,copy:{...claim,storefront:undefined}};
+    const emailNotification = await this.email.sendClaimRegistered(claim);
+    return {
+      claim_code: claim.claim_code,
+      status: claim.status,
+      created_at: claim.created_at,
+      response_due_business_days: 15,
+      email_notification: emailNotification,
+      copy: { ...claim, storefront: undefined },
+    };
   }
 
-  async listClaims(slug:string,page:number,limit:number){
-    const store=await this.findActiveStorefront(slug);const safeLimit=Math.min(Math.max(limit,1),100);const safePage=Math.max(page,1);
-    const[data,total]=await this.dataSource.getRepository(EcommerceClaim).findAndCount({where:{storefront_id:store.id},order:{created_at:'DESC'},skip:(safePage-1)*safeLimit,take:safeLimit});
-    return{data,total,page:safePage,limit:safeLimit};
+  async listClaims(slug: string, page: number, limit: number) {
+    const store = await this.findActiveStorefront(slug);
+    const safeLimit = Math.min(Math.max(limit, 1), 100);
+    const safePage = Math.max(page, 1);
+    const [data, total] = await this.dataSource
+      .getRepository(EcommerceClaim)
+      .findAndCount({
+        where: { storefront_id: store.id },
+        order: { created_at: 'DESC' },
+        skip: (safePage - 1) * safeLimit,
+        take: safeLimit,
+      });
+    return { data, total, page: safePage, limit: safeLimit };
   }
 
-  async respondClaim(slug:string,id:number,dto:RespondEcommerceClaimDto){
-    const store=await this.findActiveStorefront(slug);const repository=this.dataSource.getRepository(EcommerceClaim);const claim=await repository.findOne({where:{id,storefront_id:store.id}});if(!claim)throw new NotFoundException('Hoja de reclamación no encontrada');
-    claim.provider_actions=dto.provider_actions.trim();claim.provider_response=dto.provider_response.trim();claim.responded_at=new Date();claim.status='RESPONDIDO' as EcommerceClaim['status'];const saved=await repository.save(claim);const emailNotification=await this.email.sendClaimResponse(saved);return{...saved,email_notification:emailNotification};
+  async respondClaim(slug: string, id: number, dto: RespondEcommerceClaimDto) {
+    const store = await this.findActiveStorefront(slug);
+    const repository = this.dataSource.getRepository(EcommerceClaim);
+    const claim = await repository.findOne({
+      where: { id, storefront_id: store.id },
+    });
+    if (!claim)
+      throw new NotFoundException('Hoja de reclamación no encontrada');
+    claim.provider_actions = dto.provider_actions.trim();
+    claim.provider_response = dto.provider_response.trim();
+    claim.responded_at = new Date();
+    claim.status = 'RESPONDIDO' as EcommerceClaim['status'];
+    const saved = await repository.save(claim);
+    const emailNotification = await this.email.sendClaimResponse(saved);
+    return { ...saved, email_notification: emailNotification };
   }
 
   async updateCatalogProduct(
@@ -528,13 +674,7 @@ export class StorefrontService {
        ${searchFilter}
        ORDER BY p.article_code
        LIMIT ? OFFSET ?`,
-      [
-        query.warehouse_id,
-        query.warehouse_id,
-        ...searchParams,
-        limit,
-        offset,
-      ],
+      [query.warehouse_id, query.warehouse_id, ...searchParams, limit, offset],
     );
     const countRows = await this.dataSource.query<Array<{ total: string }>>(
       `SELECT COUNT(*) total
@@ -922,7 +1062,10 @@ export class StorefrontService {
     );
     return {
       storefront: { id: store.id, slug: store.slug, name: store.name },
-      warehouse: { id: store.warehouse_id, name: store.warehouse.warehouse_name },
+      warehouse: {
+        id: store.warehouse_id,
+        name: store.warehouse.warehouse_name,
+      },
       active_products: Number(rows[0]?.active_products ?? 0),
       draft_products: Number(rows[0]?.draft_products ?? 0),
       pending_orders: Number(rows[0]?.pending_orders ?? 0),
@@ -933,19 +1076,35 @@ export class StorefrontService {
 
   async getAdminSettings(slug: string) {
     const store = await this.findActiveStorefront(slug);
-    const [categories, series] = await Promise.all([
+    const [categories, series, productTypes] = await Promise.all([
       this.dataSource.query<Array<{ id: number; name: string }>>(
         `SELECT id, name FROM Categories WHERE LOWER(TRIM(name)) IN ('ropa para niña','accesorios para niña','calzado para niña') ORDER BY name`,
       ),
       this.dataSource.query<Array<{ code: string; description_serie: string }>>(
         `SELECT code, description_serie FROM Series WHERE status=b'1' AND code IN ('SMR','SMA','SMC') ORDER BY code`,
       ),
+      this.dataSource.query<
+        Array<{
+          id: number;
+          name: string;
+          slug: string;
+          garment_position: string;
+        }>
+      >(
+        `SELECT id,name,slug,garment_position FROM EcommerceProductTypes
+         WHERE storefront_id=? AND status=b'1' ORDER BY display_order,id`,
+        [store.id],
+      ),
     ]);
     return {
       storefront: { id: store.id, slug: store.slug, name: store.name },
-      warehouse: { id: store.warehouse_id, name: store.warehouse.warehouse_name },
+      warehouse: {
+        id: store.warehouse_id,
+        name: store.warehouse.warehouse_name,
+      },
       categories,
       series,
+      product_types: productTypes,
     };
   }
 
@@ -956,43 +1115,94 @@ export class StorefrontService {
       const existing = await manager.getRepository(Product).findOne({
         where: { article_code: code },
       });
-      if (existing) throw new ConflictException('Ya existe un producto con ese código');
+      if (existing)
+        throw new ConflictException('Ya existe un producto con ese código');
       const category = await manager.getRepository(Category).findOne({
         where: { id: dto.category_id },
       });
-      if (!category) throw new BadRequestException('La categoría seleccionada no existe');
+      if (!category)
+        throw new BadRequestException('La categoría seleccionada no existe');
+      const productTypeRows = await manager.query<
+        Array<{ id: number; garment_position: string }>
+      >(
+        `SELECT id,garment_position FROM EcommerceProductTypes
+         WHERE id=? AND storefront_id=? AND status=b'1'`,
+        [dto.ecommerce_product_type_id, store.id],
+      );
+      if (!productTypeRows[0])
+        throw new BadRequestException(
+          'El tipo de producto no pertenece a Soomin Store',
+        );
       const series = await manager.getRepository(Series).findOne({
         where: { code: dto.article_series },
       });
-      if (!series) throw new BadRequestException('La serie seleccionada no existe');
+      if (!series)
+        throw new BadRequestException('La serie seleccionada no existe');
       const categoryName = category.name.trim().toLowerCase();
       const expectedSeries: Record<string, string> = {
         'ropa para niña': 'SMR',
         'accesorios para niña': 'SMA',
         'calzado para niña': 'SMC',
       };
-      if (expectedSeries[categoryName] && dto.article_series !== expectedSeries[categoryName])
-        throw new BadRequestException('La serie no corresponde a la categoría seleccionada');
+      if (
+        expectedSeries[categoryName] &&
+        dto.article_series !== expectedSeries[categoryName]
+      )
+        throw new BadRequestException(
+          'La serie no corresponde a la categoría seleccionada',
+        );
       const sellingCents = moneyToCents(dto.selling_price);
-      if (sellingCents <= 0) throw new BadRequestException('El precio de venta debe ser mayor a cero');
+      if (sellingCents <= 0)
+        throw new BadRequestException(
+          'El precio de venta debe ser mayor a cero',
+        );
       const purchaseCents = moneyToCents(dto.purchase_price);
-      const shippingCents = dto.shipping_cost ? moneyToCents(dto.shipping_cost) : 0;
-      const originalCents = dto.original_price ? moneyToCents(dto.original_price) : 0;
-      const uniqueSizes = new Set(dto.sizes.map((item) => item.size.trim().toUpperCase()));
-      if (uniqueSizes.size !== dto.sizes.length) throw new BadRequestException('No se permiten tallas duplicadas');
-      if (categoryName === 'ropa para niña') {
-        const allowedGirlSizes = new Set(['2', '4', '6', '8', '10', '12', '14', '16']);
-        if (dto.sizes.some((item) => !allowedGirlSizes.has(item.size.trim())))
-          throw new BadRequestException('La ropa para niña admite tallas pares del 2 al 16');
-      }
-      if (categoryName === 'accesorios para niña' && dto.sizes.some((item) => item.size.trim().toUpperCase() !== 'ÚNICA'))
-        throw new BadRequestException('Los accesorios deben registrarse con talla ÚNICA');
-      if (dto.publish && (!dto.images?.length || !dto.sizes.some((item) => item.stock > 0))) {
-        throw new BadRequestException('Para publicar debe registrar imágenes y stock disponible');
-      }
-      const discount = originalCents > sellingCents
-        ? Math.round(((originalCents - sellingCents) * 100) / originalCents)
+      const shippingCents = dto.shipping_cost
+        ? moneyToCents(dto.shipping_cost)
         : 0;
+      const originalCents = dto.original_price
+        ? moneyToCents(dto.original_price)
+        : 0;
+      const uniqueSizes = new Set(
+        dto.sizes.map((item) => item.size.trim().toUpperCase()),
+      );
+      if (uniqueSizes.size !== dto.sizes.length)
+        throw new BadRequestException('No se permiten tallas duplicadas');
+      if (categoryName === 'ropa para niña') {
+        const allowedGirlSizes = new Set([
+          '2',
+          '4',
+          '6',
+          '8',
+          '10',
+          '12',
+          '14',
+          '16',
+        ]);
+        if (dto.sizes.some((item) => !allowedGirlSizes.has(item.size.trim())))
+          throw new BadRequestException(
+            'La ropa para niña admite tallas pares del 2 al 16',
+          );
+      }
+      if (
+        categoryName === 'accesorios para niña' &&
+        dto.sizes.some((item) => item.size.trim().toUpperCase() !== 'ÚNICA')
+      )
+        throw new BadRequestException(
+          'Los accesorios deben registrarse con talla ÚNICA',
+        );
+      if (
+        dto.publish &&
+        (!dto.images?.length || !dto.sizes.some((item) => item.stock > 0))
+      ) {
+        throw new BadRequestException(
+          'Para publicar debe registrar imágenes y stock disponible',
+        );
+      }
+      const discount =
+        originalCents > sellingCents
+          ? Math.round(((originalCents - sellingCents) * 100) / originalCents)
+          : 0;
       const productRepository = manager.getRepository(Product);
       const productData: Partial<Product> & Record<string, unknown> = {
         article_code: code,
@@ -1011,6 +1221,7 @@ export class StorefrontService {
         model_code: dto.group_code.trim(),
         ecommerce_group_code: dto.group_code.trim().toUpperCase(),
         color_code: dto.color_code.trim().toUpperCase(),
+        ecommerce_product_type_id: dto.ecommerce_product_type_id,
         color: dto.color.trim(),
         category,
         stock_minimum: 0,
@@ -1047,14 +1258,18 @@ export class StorefrontService {
       }
       if (dto.images?.length) {
         const imageRepository = manager.getRepository(ProductImage);
-        await imageRepository.save(dto.images.map((image, index) => imageRepository.create({
-          product_id: product.id,
-          image_url: image.url.trim(),
-          alt_text: `${dto.name.trim()} ${dto.color.trim()}`,
-          sort_order: index + 1,
-          is_primary: index === 0,
-          status: true,
-        })));
+        await imageRepository.save(
+          dto.images.map((image, index) =>
+            imageRepository.create({
+              product_id: product.id,
+              image_url: image.url.trim(),
+              alt_text: `${dto.name.trim()} ${dto.color.trim()}`,
+              sort_order: index + 1,
+              is_primary: index === 0,
+              status: true,
+            }),
+          ),
+        );
       }
       store.cache_version += 1;
       await manager.getRepository(Storefront).save(store);
@@ -1089,8 +1304,13 @@ export class StorefrontService {
     return { data: orders, total, page: safePage, limit: safeLimit };
   }
 
-  async updateOrderStatus(orderId: number, dto: UpdateEcommerceOrderStatusDto, storefrontSlug?: string, actorUserId?: number) {
-    const nextStatus=dto.status;
+  async updateOrderStatus(
+    orderId: number,
+    dto: UpdateEcommerceOrderStatusDto,
+    storefrontSlug?: string,
+    actorUserId?: number,
+  ) {
+    const nextStatus = dto.status;
     const allowed: Record<EcommerceOrderStatus, EcommerceOrderStatus[]> = {
       [EcommerceOrderStatus.PENDING]: [
         EcommerceOrderStatus.CONFIRMED,
@@ -1113,14 +1333,31 @@ export class StorefrontService {
       });
       if (!order) throw new NotFoundException('Pedido ecommerce no encontrado');
       if (storefrontSlug) {
-        const storefront = await manager.getRepository(Storefront).findOne({ where: { slug: storefrontSlug } });
+        const storefront = await manager
+          .getRepository(Storefront)
+          .findOne({ where: { slug: storefrontSlug } });
         if (!storefront || order.storefront_id !== storefront.id)
           throw new NotFoundException('Pedido ecommerce no encontrado');
       }
-      if(dto.payment_received===true)order.payment_status='PAGADO';
-      if(dto.shipping_code?.trim())order.shipping_code=dto.shipping_code.trim();
-      if(nextStatus===EcommerceOrderStatus.DISPATCHED&&order.delivery_type==='AGENCIA_SHALOM'&&!order.shipping_code)throw new BadRequestException('Ingresa el código de envío de Shalom antes de despachar');
-      if(nextStatus===EcommerceOrderStatus.DISPATCHED&&['yape','plin'].includes(order.payment_method)&&order.payment_status!=='PAGADO')throw new BadRequestException('Confirma el pago antes de despachar un pedido pagado por Yape o Plin');
+      if (dto.payment_received === true) order.payment_status = 'PAGADO';
+      if (dto.shipping_code?.trim())
+        order.shipping_code = dto.shipping_code.trim();
+      if (
+        nextStatus === EcommerceOrderStatus.DISPATCHED &&
+        order.delivery_type === 'AGENCIA_SHALOM' &&
+        !order.shipping_code
+      )
+        throw new BadRequestException(
+          'Ingresa el código de envío de Shalom antes de despachar',
+        );
+      if (
+        nextStatus === EcommerceOrderStatus.DISPATCHED &&
+        ['yape', 'plin'].includes(order.payment_method) &&
+        order.payment_status !== 'PAGADO'
+      )
+        throw new BadRequestException(
+          'Confirma el pago antes de despachar un pedido pagado por Yape o Plin',
+        );
       if (order.status === nextStatus) return order;
       if (!allowed[order.status]?.includes(nextStatus)) {
         throw new ConflictException(
@@ -1130,7 +1367,9 @@ export class StorefrontService {
       if (nextStatus === EcommerceOrderStatus.CANCELED) {
         const cancellationReason = dto.cancellation_reason?.trim();
         if (!cancellationReason || cancellationReason.length < 5) {
-          throw new BadRequestException('Ingresa un motivo de rechazo de al menos 5 caracteres');
+          throw new BadRequestException(
+            'Ingresa un motivo de rechazo de al menos 5 caracteres',
+          );
         }
         if (order.stock_released_at)
           throw new ConflictException(
@@ -1176,6 +1415,9 @@ export class StorefrontService {
       status: order.status,
       currency: order.currency,
       total_amount: order.total_amount,
+      subtotal_amount: order.subtotal_amount,
+      discount_amount: order.discount_amount,
+      bundle_discount_percent: order.bundle_discount_percent,
       shipping_amount: order.shipping_amount,
       created_at: order.created_at,
       idempotent_replay: idempotentReplay,
@@ -1189,7 +1431,7 @@ export class StorefrontService {
         quantity: detail.quantity,
         unit_price: detail.unit_price,
         subtotal: detail.subtotal,
-        image_url:detail.image_url_snapshot,
+        image_url: detail.image_url_snapshot,
       })),
     };
   }

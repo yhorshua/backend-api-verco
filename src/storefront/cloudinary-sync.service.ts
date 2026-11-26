@@ -2,10 +2,7 @@ import {
   BadGatewayException,
   BadRequestException,
   Injectable,
-  Logger,
   NotFoundException,
-  OnModuleDestroy,
-  OnModuleInit,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -68,11 +65,7 @@ export function productCodeFromPublicId(publicId: string): string | null {
 }
 
 @Injectable()
-export class CloudinarySyncService implements OnModuleInit, OnModuleDestroy {
-  private readonly logger = new Logger(CloudinarySyncService.name);
-  private automaticInitialTimer?: NodeJS.Timeout;
-  private automaticTimer?: NodeJS.Timeout;
-  private automaticSyncRunning = false;
+export class CloudinarySyncService {
 
   constructor(
     private readonly config: ConfigService,
@@ -82,33 +75,6 @@ export class CloudinarySyncService implements OnModuleInit, OnModuleDestroy {
     private readonly imageRepository: Repository<ProductImage>,
     private readonly storefrontService: StorefrontService,
   ) {}
-
-  onModuleInit(): void {
-    if (
-      this.config.get<string>('CLOUDINARY_SYNC_ENABLED')?.toLowerCase() !==
-      'true'
-    )
-      return;
-    const configuredMinutes = Number(
-      this.config.get<string>('CLOUDINARY_SYNC_INTERVAL_MINUTES') ?? '5',
-    );
-    const intervalMinutes = Number.isFinite(configuredMinutes)
-      ? Math.max(1, configuredMinutes)
-      : 5;
-    const run = () => void this.runAutomaticSync();
-    this.automaticInitialTimer = setTimeout(run, 10_000);
-    this.automaticInitialTimer.unref();
-    this.automaticTimer = setInterval(run, intervalMinutes * 60_000);
-    this.automaticTimer.unref();
-    this.logger.log(
-      `Sincronización automática de Cloudinary activa cada ${intervalMinutes} minuto(s)`,
-    );
-  }
-
-  onModuleDestroy(): void {
-    if (this.automaticInitialTimer) clearTimeout(this.automaticInitialTimer);
-    if (this.automaticTimer) clearInterval(this.automaticTimer);
-  }
 
   async syncProductImages(
     articleCodeValue: string,
@@ -203,26 +169,6 @@ export class CloudinarySyncService implements OnModuleInit, OnModuleDestroy {
       unknown_product_codes,
       results,
     };
-  }
-
-  private async runAutomaticSync(): Promise<void> {
-    if (this.automaticSyncRunning) return;
-    this.automaticSyncRunning = true;
-    try {
-      const result = await this.syncAssetFolder({
-        dry_run: false,
-        replace_existing: false,
-      });
-      this.logger.log(
-        `Cloudinary sincronizado: ${result.images_registered} imagen(es) nueva(s), ${result.products_missing} código(s) sin producto`,
-      );
-    } catch (error: unknown) {
-      const message =
-        error instanceof Error ? error.message : 'Error desconocido';
-      this.logger.error(`Falló la sincronización automática: ${message}`);
-    } finally {
-      this.automaticSyncRunning = false;
-    }
   }
 
   private async syncProductResources(
