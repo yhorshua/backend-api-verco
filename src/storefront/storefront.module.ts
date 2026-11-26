@@ -13,6 +13,8 @@ import { CloudinarySyncService } from './cloudinary-sync.service';
 import { EcommerceClaim } from '../database/entities/ecommerce-claim.entity';
 import { StorefrontWriteRateLimitGuard } from './storefront-write-rate-limit.guard';
 import { StorefrontEmailService } from './storefront-email.service';
+import { EcommerceCustomer } from '../database/entities/ecommerce-customer.entity';
+import { StorefrontCustomerAuthService } from './storefront-customer-auth.service';
 
 @Module({
   imports: [
@@ -23,10 +25,11 @@ import { StorefrontEmailService } from './storefront-email.service';
       Product,
       ProductImage,
       EcommerceClaim,
+      EcommerceCustomer,
     ]),
   ],
   controllers: [StorefrontController, StorefrontAdminController],
-  providers: [StorefrontService, StorefrontCacheService, CloudinarySyncService, StorefrontWriteRateLimitGuard, StorefrontEmailService],
+  providers: [StorefrontService, StorefrontCacheService, CloudinarySyncService, StorefrontWriteRateLimitGuard, StorefrontEmailService, StorefrontCustomerAuthService],
   exports: [StorefrontService],
 })
 export class StorefrontModule {}

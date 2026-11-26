@@ -21,9 +21,18 @@ const validOrder = {
 };
 
 describe('CreateEcommerceOrderDto', () => {
-  it.each(['yape', 'plin', 'contra_entrega'])('acepta el medio de pago %s', async (payment_method) => {
+  it.each(['yape', 'contra_entrega'])('acepta el medio de pago %s', async (payment_method) => {
     const dto = plainToInstance(CreateEcommerceOrderDto, { ...validOrder, payment_method });
     expect(await validate(dto)).toHaveLength(0);
+  });
+
+  it('rechaza Plin para pedidos nuevos del ecommerce', async () => {
+    const dto = plainToInstance(CreateEcommerceOrderDto, {
+      ...validOrder,
+      payment_method: 'plin',
+    });
+    const errors = await validate(dto);
+    expect(errors.some((error) => error.property === 'payment_method')).toBe(true);
   });
 
   it('rechaza medios de pago no habilitados para Soomin', async () => {

@@ -84,6 +84,7 @@ import { StorefrontModule } from './storefront/storefront.module';
 import { EcommerceOrder } from './database/entities/ecommerce-order.entity';
 import { EcommerceOrderDetail } from './database/entities/ecommerce-order-detail.entity';
 import { EcommerceClaim } from './database/entities/ecommerce-claim.entity';
+import { EcommerceCustomer } from './database/entities/ecommerce-customer.entity';
 import { HealthController } from './health.controller';
 
 @Module({
@@ -168,6 +169,7 @@ import { HealthController } from './health.controller';
         EcommerceOrder,
         EcommerceOrderDetail,
         EcommerceClaim,
+        EcommerceCustomer,
       ],
     }),
 

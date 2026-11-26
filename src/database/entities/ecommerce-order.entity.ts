@@ -40,6 +40,9 @@ export class EcommerceOrder {
   @Column({ type: 'int' })
   warehouse_id!: number;
 
+  @Column({ type: 'int', nullable: true })
+  customer_id!: number | null;
+
   @Column({ type: 'varchar', length: 150 })
   customer_name!: string;
 

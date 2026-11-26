@@ -79,7 +79,7 @@ export class CreateEcommerceOrderDto {
   reference?: string;
 
   @IsString()
-  @IsIn(['yape', 'plin', 'contra_entrega'])
+  @IsIn(['yape', 'contra_entrega'])
   payment_method!: string;
 
   @IsIn(['DOMICILIO_LIMA','AGENCIA_SHALOM']) delivery_type!:'DOMICILIO_LIMA'|'AGENCIA_SHALOM';

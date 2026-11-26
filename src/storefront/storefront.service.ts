@@ -255,7 +255,7 @@ export class StorefrontService {
     return response;
   }
 
-  async createOrder(slug: string, dto: CreateEcommerceOrderDto) {
+  async createOrder(slug: string, dto: CreateEcommerceOrderDto, customerId: number|null = null) {
     const isLimaProvince=dto.department.trim().toUpperCase()==='LIMA'&&dto.province.trim().toUpperCase()==='LIMA';
     if(!isLimaProvince&&dto.delivery_type!=='AGENCIA_SHALOM')throw new BadRequestException('Los pedidos fuera de Lima deben enviarse por agencia Shalom');
     if(dto.delivery_type==='AGENCIA_SHALOM'&&!dto.shalom_agency_name?.trim())throw new BadRequestException('Ingresa el nombre de la agencia Shalom de destino');
@@ -350,6 +350,7 @@ export class StorefrontService {
             idempotency_key: dto.idempotency_key,
             storefront_id: store.id,
             warehouse_id: store.warehouse_id,
+            customer_id: customerId,
             customer_name: dto.customer_name.trim(),
             customer_document: dto.customer_document.trim(),
             customer_phone: dto.customer_phone.trim(),
