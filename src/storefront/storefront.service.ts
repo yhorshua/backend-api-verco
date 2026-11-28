@@ -215,12 +215,13 @@ export class StorefrontService {
 
   async getCatalog(slug: string) {
     const store = await this.findActiveStorefront(slug);
-    const cacheKey = `storefront:catalog:schema2:${store.id}:v${store.cache_version}`;
+    const cacheKey = `storefront:catalog:schema3:${store.id}:v${store.cache_version}`;
     const cached = await this.cache.getJson<unknown>(cacheKey);
     if (cached) return cached;
 
-    const rows = await this.dataSource.query<CatalogRow[]>(
-      `SELECT p.id AS product_id, p.article_code,
+    const [rows, productTypes] = await Promise.all([
+      this.dataSource.query<CatalogRow[]>(
+        `SELECT p.id AS product_id, p.article_code,
               c.id AS category_id, c.name AS category_name, p.article_series,
               ept.id AS product_type_id, ept.name AS product_type_name,
               ept.slug AS product_type_slug, ept.garment_position,
@@ -249,8 +250,24 @@ export class StorefrontService {
        ORDER BY p.article_code, pi.is_primary DESC, pi.sort_order,
                 CASE WHEN ps.size REGEXP '^[0-9]+([.][0-9]+)?$' THEN 0 ELSE 1 END,
                 CAST(ps.size AS DECIMAL(10,2)), ps.size`,
-      [store.id, store.warehouse_id],
-    );
+        [store.id, store.warehouse_id],
+      ),
+      this.dataSource.query<
+        Array<{
+          id: number;
+          name: string;
+          slug: string;
+          garment_position: string;
+          display_order: number;
+        }>
+      >(
+        `SELECT id,name,slug,garment_position,display_order
+         FROM EcommerceProductTypes
+         WHERE storefront_id=? AND status=b'1'
+         ORDER BY display_order,id`,
+        [store.id],
+      ),
+    ]);
 
     const groups = new Map<string, CatalogGroup>();
     for (const row of rows) {
@@ -315,6 +332,7 @@ export class StorefrontService {
 
     const response = {
       store: { slug: store.slug, name: store.name, currency: store.currency },
+      product_types: productTypes,
       products: [...groups.values()],
     };
     await this.cache.setJson(cacheKey, response, store.cache_ttl_seconds);
@@ -751,9 +769,17 @@ export class StorefrontService {
       [productId],
     );
     const sizes = await this.dataSource.query<
-      Array<{ id: number; size: string; stock: string }>
+      Array<{
+        id: number;
+        size: string;
+        stock_id: number | null;
+        stock: string;
+        version: number | null;
+      }>
     >(
-      `SELECT ps.id, ps.size, CAST(COALESCE(s.quantity, 0) AS CHAR) stock
+      `SELECT ps.id, ps.size, s.id AS stock_id,
+              CAST(COALESCE(s.quantity, 0) AS CHAR) stock,
+              s.version
        FROM ProductSize ps
        LEFT JOIN Stock s ON s.product_size_id = ps.id
         AND s.product_id = ps.product_id AND s.warehouse_id = ?
